@@ -3,7 +3,7 @@ memory.set_write_strength(0.001)
 
 -- [[ CONFIGURATION ]]
 -- CHANGE THIS TO YOUR GITHUB USERNAME AND REPO NAME
-local Repo = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/"
+local Repo = "https://raw.githubusercontent.com/bloodstainedsaint/Almeida/main/"
 
 -- [[ IMPORTER ]]
 local function Import(path)
