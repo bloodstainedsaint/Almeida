@@ -1,6 +1,6 @@
 --!optimization 2
 -- [ RCM ] Render Control Module + Severe UI Library
--- Features: String Keys Only ("Delete", "F1"), Tooltips, Tab Wrapping, Mouse Interaction
+-- Fixed: Toggle Key now compares STRINGS directly (e.g. "Delete" == "Delete")
 
 local RCM = {}
 local Library = {}
@@ -22,7 +22,7 @@ RCM.State = {
     MousePos = vector.create(0, 0, 0),
     MouseDown = false,
     MouseHeld = false,
-    ToggleKey = "Delete", -- Default is now a String
+    ToggleKey = "Delete", -- Default String
     LastToggle = 0,
     ActiveTooltip = nil
 }
@@ -37,11 +37,10 @@ function RCM.Label(pos, text, color, center)
 end
 
 function RCM:UpdateInput()
-    -- Mouse Position
+    -- Mouse
     local s, mPos = pcall(getmouseposition)
     if s and mPos then self.State.MousePos = mPos end
 
-    -- Mouse Click
     local currentDown = isleftpressed()
     if currentDown and not self.State.MouseDown then
         self.State.MouseDown = true
@@ -52,23 +51,23 @@ function RCM:UpdateInput()
         self.State.MouseHeld = false
     end
 
-    -- Toggle Key Check (String Comparison)
-    local keys = getpressedkeys()
+    -- [ FIX ] Toggle Key Check (String vs String)
+    local keys = getpressedkeys() -- Returns {"Delete", "W", etc}
     local isTogglePressed = false
     
     if keys then
-        for _, keyName in ipairs(keys) do
-            -- Directly compare the string name (e.g. "Delete" == "Delete")
-            if keyName == self.State.ToggleKey then 
+        for _, k in ipairs(keys) do
+            if k == self.State.ToggleKey then 
                 isTogglePressed = true 
                 break 
             end
         end
     end
 
-    if isTogglePressed and (tick() - self.State.LastToggle > 0.3) then
+    -- Use os.clock() for safety
+    if isTogglePressed and (os.clock() - self.State.LastToggle > 0.3) then
         self.State.Enabled = not self.State.Enabled
-        self.State.LastToggle = tick()
+        self.State.LastToggle = os.clock()
     end
 end
 
@@ -80,7 +79,7 @@ end
 
 -- [ 3 ] Library Core
 function Library:Window(props)
-    -- Simply assign the string directly
+    -- Simply store the string directly
     if props.ToggleKey then
         RCM.State.ToggleKey = props.ToggleKey
     end
@@ -101,12 +100,9 @@ function Library:Window(props)
         local x, y = self.pos.x, self.pos.y
         local click = RCM.State.MouseDown and not RCM.State.MouseHeld
 
-        -- Dragging
-        if click then
-            if RCM:IsMouseOver(self.pos, vector.create(280, 25, 0)) then
-                self.dragging = true
-                self.dragOffset = vector.create(RCM.State.MousePos.x - x, RCM.State.MousePos.y - y, 0)
-            end
+        if click and RCM:IsMouseOver(self.pos, vector.create(280, 25, 0)) then
+            self.dragging = true
+            self.dragOffset = vector.create(RCM.State.MousePos.x - x, RCM.State.MousePos.y - y, 0)
         end
 
         if self.dragging then
@@ -117,7 +113,7 @@ function Library:Window(props)
             end
         end
 
-        -- Header Calc (Tab Wrapping)
+        -- Header & Tab Calculation
         local tabXCursor = 10
         local tabYOffset = 25
         local tabRowHeight = 18
@@ -133,7 +129,7 @@ function Library:Window(props)
         end
         local headerHeight = tabYOffset + 20 
 
-        -- Content Calc
+        -- Content Calculation
         local currentPage = self.pages[self.activePage]
         local contentHeight = 0
 
@@ -153,13 +149,13 @@ function Library:Window(props)
         local totalHeight = headerHeight + contentHeight + 5
         self.size = vector.create(280, totalHeight, 0)
 
-        -- Render Body
+        -- Draw Body
         RCM.Rect(self.pos, self.size, RCM.Theme.Border, 1)
         RCM.Rect(vector.create(x + 1, y + 1, 0), vector.create(278, totalHeight - 2, 0), RCM.Theme.Background, 1)
         RCM.Rect(self.pos, vector.create(280, 2, 0), RCM.Theme.Accent, 1)
         RCM.Label(vector.create(x + 10, y + 5, 0), self.name, RCM.Theme.Text)
         
-        -- Render Tabs
+        -- Draw Tabs
         tabXCursor = 10
         tabYOffset = 25
         
@@ -191,7 +187,7 @@ function Library:Window(props)
         
         RCM.Rect(vector.create(x + 5, y + headerHeight - 2, 0), vector.create(270, 1, 0), RCM.Theme.Hover, 1)
 
-        -- Render Content
+        -- Draw Content
         local contentY = y + headerHeight
         
         if currentPage then
@@ -206,10 +202,10 @@ function Library:Window(props)
                     local itemClick = hovered and click
 
                     if hovered then RCM.Rect(itemPos, itemSize, RCM.Theme.Hover, 0.5) end
-
+                    
                     local displayName = item.name
                     local nameX = x + 20
-                    
+
                     if item.type == "toggle" then
                         if itemClick then 
                             item.value = not item.value 
@@ -269,7 +265,6 @@ function Library:Window(props)
                         end
                     end
 
-                    -- Tooltip
                     if item.tooltip then
                         local nameWidth = (7 * #displayName)
                         local iconX = nameX + nameWidth + 8
