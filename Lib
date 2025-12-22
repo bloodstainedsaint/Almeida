@@ -1,6 +1,6 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v2.1
--- Fixed: "Connect" error (Auto-detects lowercase/uppercase signal methods)
+-- [ RCM ] Severe UI Library v2.2
+-- Fixed: RBXScriptSignal 'Connect' indexing error (Added SafeConnect)
 
 local RCM = {}
 local Library = {}
@@ -80,7 +80,11 @@ end
 function RCM:DrawWatermark()
     if not self.State.Watermark.Visible then return end
     local pos = self.State.Watermark.Pos
-    local fps = 60; if workspace:FindFirstChild("DistributedGameTime") then fps = math.floor(1/game:GetService("RunService").RenderStepped:Wait()) end
+    local fps = 60
+    -- Safe FPS check
+    local s, dt = pcall(function() return game:GetService("RunService").RenderStepped:Wait() end)
+    if s and dt > 0 then fps = math.floor(1/dt) end
+    
     local text = string.format("Severe UI | FPS: %d", fps)
     local width = (7 * #text) + 20
     local size = vector.create(width, 22, 0)
@@ -363,9 +367,20 @@ function RCM:Init()
     
     if not renderEvent then return warn("No Render event found") end
     
-    -- [ FIX ] Auto-detect Connect vs connect
-    local connect = renderEvent.Connect or renderEvent.connect
-    connect(renderEvent, function()
+    -- [ FIX ] SafeConnect using pcall to handle indexing errors
+    local function SafeConnect(event, callback)
+        -- Try Capital C
+        local s, c = pcall(function() return event.Connect end)
+        if s and c then return c(event, callback) end
+        
+        -- Try Lowercase c
+        s, c = pcall(function() return event.connect end)
+        if s and c then return c(event, callback) end
+        
+        warn("Could not find valid Connect method on Render event")
+    end
+
+    SafeConnect(renderEvent, function()
         self:UpdateInput()
         self.State.ActiveTooltip = nil
         
