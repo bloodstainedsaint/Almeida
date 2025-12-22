@@ -1,6 +1,6 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v3.0
--- Features: Keybind List (Always/Active modes), Binders (Hold logic), Watermark, Config
+-- [ RCM ] Severe UI Library v3.1
+-- Features: Dynamic HUD Width, Increased Padding, Keybind Binders, Config System
 
 local RCM = {}
 local Library = {}
@@ -16,6 +16,11 @@ RCM.Theme = {
     Hover      = Color3.new(0.2, 0.2, 0.2),
     TooltipBg  = Color3.new(0.05, 0.05, 0.05)
 }
+
+-- [ Constants for Spacing ]
+local PAD_X = 25       -- Horizontal padding for items
+local ITEM_H = 24      -- Vertical spacing per item (Previously 18)
+local SEC_PAD = 28     -- Spacing between sections (Previously 20)
 
 RCM.State = {
     Enabled = true,
@@ -35,7 +40,6 @@ RCM.State = {
     KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) }
 }
 
--- Registry for logic updates (Binders need to run when menu is closed)
 RCM.Binders = {} 
 
 -- [ 2 ] Helpers
@@ -93,7 +97,6 @@ function RCM:UpdateBinders()
 
     for _, bind in ipairs(RCM.Binders) do
         if bind.listening then
-            -- Rebinding logic
             for _, k in ipairs(keys) do
                 if k ~= "Unknown" and k ~= "LeftMouse" then
                     bind.key = k
@@ -101,7 +104,6 @@ function RCM:UpdateBinders()
                 end
             end
         else
-            -- Active state logic (Hold mode)
             local isActive = keyMap[bind.key] == true
             if bind.active ~= isActive then
                 bind.active = isActive
@@ -122,8 +124,8 @@ function RCM:DrawWatermark()
     if not self.State.Watermark.Visible then return end
     local pos = self.State.Watermark.Pos
     local text = "Severe UI | FPS: " .. tostring(self.State.CurrentFPS)
-    local width = (7 * #text) + 20
-    local size = vector.create(width, 22, 0)
+    local width = (7 * #text) + 30 -- Increased padding
+    local size = vector.create(width, 24, 0)
     
     if self.State.Enabled then
         local click = self.State.MouseDown and not self.State.MouseHeld
@@ -140,13 +142,12 @@ function RCM:DrawWatermark()
     RCM.Rect(pos, size, self.Theme.Border, 1)
     RCM.Rect(vector.create(pos.x + 1, pos.y + 1, 0), vector.create(size.x - 2, size.y - 2, 0), self.Theme.Background, 1)
     RCM.Rect(pos, vector.create(width, 2, 0), self.Theme.Accent, 1)
-    RCM.Label(vector.create(pos.x + 10, pos.y + 4, 0), text, self.Theme.Text)
+    RCM.Label(vector.create(pos.x + 15, pos.y + 5, 0), text, self.Theme.Text)
 end
 
 function RCM:DrawKeybindList()
     if not self.State.KeybindList.Visible then return end
     
-    -- Filter items based on mode
     local itemsToShow = {}
     for _, bind in ipairs(RCM.Binders) do
         if self.State.KeybindList.Mode == "Always" then
@@ -156,20 +157,26 @@ function RCM:DrawKeybindList()
         end
     end
     
-    -- Don't draw if empty in "Active" mode, unless dragging enabled
     if #itemsToShow == 0 and not self.State.Enabled then return end
 
+    -- [ FIX ] Calculate dynamic width based on longest text
+    local maxWidth = 150
+    for _, bind in ipairs(itemsToShow) do
+        local txt = string.format("[%s] %s", bind.key, bind.name)
+        local w = (7 * #txt) + 30 -- Text width + Padding
+        if w > maxWidth then maxWidth = w end
+    end
+
     local pos = self.State.KeybindList.Pos
-    local width = 150
-    local headerHeight = 22
-    local itemHeight = 18
+    local width = maxWidth
+    local headerHeight = 24
+    local itemHeight = 20
     local totalHeight = headerHeight + (#itemsToShow * itemHeight) + 5
     local size = vector.create(width, totalHeight, 0)
 
     -- Drag Logic
     if self.State.Enabled then
         local click = self.State.MouseDown and not self.State.MouseHeld
-        -- Allow dragging header
         if click and self:IsMouseOver(pos, vector.create(width, headerHeight, 0)) then
             self.State.KeybindList.Dragging = true
             self.State.KeybindList.Offset = vector.create(self.State.MousePos.x - pos.x, self.State.MousePos.y - pos.y, 0)
@@ -184,7 +191,7 @@ function RCM:DrawKeybindList()
     RCM.Rect(pos, size, self.Theme.Border, 1)
     RCM.Rect(vector.create(pos.x + 1, pos.y + 1, 0), vector.create(width - 2, totalHeight - 2, 0), self.Theme.Background, 1)
     RCM.Rect(pos, vector.create(width, 2, 0), self.Theme.Accent, 1)
-    RCM.Label(vector.create(pos.x + (width/2) - 25, pos.y + 4, 0), "Keybinds", self.Theme.Text)
+    RCM.Label(vector.create(pos.x + (width/2) - 25, pos.y + 5, 0), "Keybinds", self.Theme.Text)
     
     -- Draw Items
     local cy = pos.y + headerHeight + 2
@@ -245,17 +252,19 @@ function Library:Window(props)
         end
         local headerHeight = tabYOffset + 20 
 
-        -- Content
+        -- Content Height Calc
         local currentPage = self.pages[self.activePage]
         local contentHeight = 0
 
         if currentPage then
             for _, section in ipairs(currentPage.sections) do
-                contentHeight = contentHeight + 20
+                contentHeight = contentHeight + SEC_PAD -- Increased Section Spacing
                 for _, item in ipairs(section.items) do
-                    contentHeight = contentHeight + 18
+                    contentHeight = contentHeight + ITEM_H -- Increased Item Spacing
                     if item.type == "dropdown" and item.open then
-                        contentHeight = contentHeight + (#item.options * 18)
+                        contentHeight = contentHeight + (#item.options * ITEM_H)
+                    elseif item.type == "colorpicker" and item.open then
+                        contentHeight = contentHeight + (3 * ITEM_H) + 5
                     end
                 end
                 contentHeight = contentHeight + 5
@@ -308,19 +317,20 @@ function Library:Window(props)
         
         if currentPage then
             for _, section in ipairs(currentPage.sections) do
-                RCM.Label(vector.create(x + 10, contentY + 3, 0), "[" .. section.name .. "]", RCM.Theme.Section)
-                contentY = contentY + 20
+                -- Section Header Spacing
+                RCM.Label(vector.create(x + 10, contentY + 5, 0), "[" .. section.name .. "]", RCM.Theme.Section)
+                contentY = contentY + SEC_PAD
 
                 for _, item in ipairs(section.items) do
                     local itemPos = vector.create(x + 15, contentY, 0)
-                    local itemSize = vector.create(250, 16, 0)
+                    local itemSize = vector.create(250, 18, 0) -- Taller hover area
                     local hovered = RCM:IsMouseOver(itemPos, itemSize)
                     local itemClick = hovered and click
 
                     if hovered then RCM.Rect(itemPos, itemSize, RCM.Theme.Hover, 0.5) end
 
                     local displayName = item.name
-                    local nameX = x + 20
+                    local nameX = x + PAD_X -- Increased Padding (25px)
 
                     if item.type == "toggle" then
                         if itemClick then 
@@ -359,11 +369,12 @@ function Library:Window(props)
                         displayName = item.name .. ": " .. item.selected
                         RCM.Label(vector.create(nameX, contentY + 2, 0), displayName, RCM.Theme.Text)
                         RCM.Label(vector.create(x + 250, contentY + 2, 0), icon, RCM.Theme.Section, true)
+                        
                         if item.open then
-                            local dropY = contentY + 18
+                            local dropY = contentY + ITEM_H
                             for _, opt in ipairs(item.options) do
                                 local optPos = vector.create(x + 30, dropY, 0)
-                                local optSize = vector.create(230, 16, 0)
+                                local optSize = vector.create(230, 18, 0)
                                 if RCM:IsMouseOver(optPos, optSize) then
                                     RCM.Rect(optPos, optSize, RCM.Theme.Hover, 0.5)
                                     if click then
@@ -374,12 +385,11 @@ function Library:Window(props)
                                 end
                                 local optCol = (item.selected == opt) and RCM.Theme.Accent or RCM.Theme.Text
                                 RCM.Label(vector.create(x + 35, dropY + 2, 0), opt, optCol)
-                                dropY = dropY + 18
+                                dropY = dropY + ITEM_H
                             end
-                            contentY = contentY + (#item.options * 18)
+                            contentY = contentY + (#item.options * ITEM_H)
                         end
 
-                    -- [ FEATURE ] Keybind Binder
                     elseif item.type == "binder" then
                         if itemClick then item.listening = not item.listening end
                         
@@ -390,6 +400,34 @@ function Library:Window(props)
                         local col = item.listening and RCM.Theme.Accent or RCM.Theme.Text
                         
                         RCM.Label(vector.create(nameX, contentY + 2, 0), txt, col)
+
+                    elseif item.type == "colorpicker" then
+                        if itemClick then item.open = not item.open end
+                        RCM.Label(vector.create(nameX, contentY + 2, 0), item.name, RCM.Theme.Text)
+                        RCM.Rect(vector.create(x + 230, contentY + 2, 0), vector.create(20, 12, 0), item.color, 1)
+                        
+                        if item.open then
+                            local cpY = contentY + ITEM_H
+                            local function drawCSlider(lbl, val, max, col)
+                                local sHover = RCM:IsMouseOver(vector.create(x + 30, cpY, 0), vector.create(230, 16, 0))
+                                if sHover and isleftpressed() then
+                                    val = math.floor(math.clamp((RCM.State.MousePos.x - (x + 80)) / 150, 0, 1) * max)
+                                end
+                                RCM.Label(vector.create(x + 35, cpY + 2, 0), lbl, col)
+                                RCM.Rect(vector.create(x + 80, cpY + 6, 0), vector.create(150, 4, 0), RCM.Theme.Section, 1)
+                                RCM.Rect(vector.create(x + 80, cpY + 6, 0), vector.create((val/max)*150, 4, 0), col, 1)
+                                return val
+                            end
+                            
+                            local r = drawCSlider("R", math.floor(item.color.R * 255), 255, Color3.new(1,0,0)); cpY = cpY + ITEM_H
+                            local g = drawCSlider("G", math.floor(item.color.G * 255), 255, Color3.new(0,1,0)); cpY = cpY + ITEM_H
+                            local b = drawCSlider("B", math.floor(item.color.B * 255), 255, Color3.new(0,0,1))
+                            
+                            local newCol = Color3.fromRGB(r, g, b)
+                            if newCol ~= item.color then item.color = newCol; item.callback(newCol) end
+                            
+                            contentY = contentY + (3 * ITEM_H) + 5
+                        end
                     end
 
                     if item.tooltip then
@@ -400,7 +438,7 @@ function Library:Window(props)
                         end
                     end
 
-                    contentY = contentY + 18
+                    contentY = contentY + ITEM_H
                 end
                 contentY = contentY + 5
             end
@@ -408,52 +446,96 @@ function Library:Window(props)
     end
 
     function window:Page(props)
-        local page = { name = props.Name or "Page", sections = {} }
+        local page = { name = props.Name, sections = {} }
         function page:Section(props)
-            local section = { name = props.Name or "Section", items = {} }
-            function section:Toggle(p) table.insert(section.items, {type="toggle", name=p.Name, value=p.Default or false, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
-            function section:Slider(p) table.insert(section.items, {type="slider", name=p.Name, value=p.Default or p.Min, min=p.Min, max=p.Max, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
-            function section:Button(p) table.insert(section.items, {type="button", name=p.Name, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
-            function section:Dropdown(p) table.insert(section.items, {type="dropdown", name=p.Name, options=p.Options, selected=p.Default or p.Options[1], open=false, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
+            local section = { name = props.Name, items = {} }
+            function section:Toggle(p) table.insert(section.items, {type="toggle", name=p.Name, value=p.Default or false, callback=p.Callback, tooltip=p.Tooltip}) end
+            function section:Slider(p) table.insert(section.items, {type="slider", name=p.Name, value=p.Default or p.Min, min=p.Min, max=p.Max, callback=p.Callback, tooltip=p.Tooltip}) end
+            function section:Button(p) table.insert(section.items, {type="button", name=p.Name, callback=p.Callback, tooltip=p.Tooltip}) end
+            function section:Dropdown(p) table.insert(section.items, {type="dropdown", name=p.Name, options=p.Options, selected=p.Default, open=false, callback=p.Callback, tooltip=p.Tooltip}) end
             
-            -- [ NEW ] Binder Component
             function section:Binder(p) 
                 local bind = {
-                    type="binder", 
-                    name=p.Name, 
-                    key=p.Default or "None", 
-                    active=false, 
-                    listening=false, 
-                    callback=p.Callback or function()end, 
-                    tooltip=p.Tooltip
+                    type="binder", name=p.Name, key=p.Default or "None", active=false, listening=false, callback=p.Callback, tooltip=p.Tooltip
                 }
                 table.insert(section.items, bind)
-                table.insert(RCM.Binders, bind) -- Add to global registry
+                table.insert(RCM.Binders, bind)
             end
             
+            function section:ColorPicker(p) table.insert(section.items, {type="colorpicker", name=p.Name, color=p.Default or Color3.new(1,1,1), open=false, callback=p.Callback, tooltip=p.Tooltip}) end
             table.insert(page.sections, section)
             return section
         end
         table.insert(self.pages, page)
         return page
     end
-
     return window
 end
 
+function Library:SaveConfig(name)
+    local data = {}
+    for _, win in ipairs(RCM.Windows) do
+        for _, page in ipairs(win.pages) do
+            for _, sec in ipairs(page.sections) do
+                for _, item in ipairs(sec.items) do
+                    if item.type == "toggle" then data[item.name] = item.value
+                    elseif item.type == "slider" then data[item.name] = item.value
+                    elseif item.type == "dropdown" then data[item.name] = item.selected
+                    elseif item.type == "binder" then data[item.name] = item.key
+                    elseif item.type == "colorpicker" then data[item.name] = {R=item.color.R, G=item.color.G, B=item.color.B} end
+                end
+            end
+        end
+    end
+    writefile(name .. ".json", crypt.json.encode(data))
+end
+
+function Library:LoadConfig(name)
+    if not isfile(name .. ".json") then return end
+    local data = crypt.json.decode(readfile(name .. ".json"))
+    for _, win in ipairs(RCM.Windows) do
+        for _, page in ipairs(win.pages) do
+            for _, sec in ipairs(page.sections) do
+                for _, item in ipairs(sec.items) do
+                    if data[item.name] ~= nil then
+                        if item.type == "toggle" then item.value = data[item.name]; if item.callback then item.callback(item.value) end
+                        elseif item.type == "slider" then item.value = data[item.name]; if item.callback then item.callback(item.value) end
+                        elseif item.type == "dropdown" then item.selected = data[item.name]; if item.callback then item.callback(item.selected) end
+                        elseif item.type == "binder" then item.key = data[item.name]; if item.callback then item.callback(item.key) end
+                        elseif item.type == "colorpicker" then 
+                            local c = data[item.name]; item.color = Color3.new(c.R, c.G, c.B); if item.callback then item.callback(item.color) end 
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 function RCM:Init()
-    local renderEvent = RunService.Render or game:GetService("RunService").RenderStepped
-    renderEvent:Connect(function()
+    local renderEvent = nil
+    if RunService and RunService.Render then renderEvent = RunService.Render
+    elseif game then renderEvent = game:GetService("RunService").RenderStepped end
+    
+    if not renderEvent then return warn("No Render event found") end
+    
+    local function Connect(event, cb)
+        local s, res = pcall(function() return event:Connect(cb) end)
+        if s then return res end
+        s, res = pcall(function() return event:connect(cb) end)
+        if s then return res end
+        warn("Failed to connect to Render event")
+    end
+
+    Connect(renderEvent, function()
         self:UpdateInput()
-        self:UpdateBinders() -- [ NEW ] Check logic every frame
+        self:UpdateBinders()
         self.State.ActiveTooltip = nil
         
         self:DrawWatermark()
-        self:DrawKeybindList() -- [ NEW ] Draw Keybind HUD
+        self:DrawKeybindList()
 
-        for _, win in ipairs(self.Windows) do
-            win:Draw()
-        end
+        for _, win in ipairs(self.Windows) do win:Draw() end
         
         if self.State.ActiveTooltip then
             local t = self.State.ActiveTooltip
@@ -461,6 +543,7 @@ function RCM:Init()
             local w = (8*#t)+12
             local tx, ty = mp.x+12, mp.y+12
             if (tx+w)>self.State.ScreenSize.x then tx=self.State.ScreenSize.x-w-5 end
+            if (ty+20)>self.State.ScreenSize.y then ty=self.State.ScreenSize.y-25 end
             RCM.Rect(vector.create(tx,ty,1), vector.create(w,20,0), RCM.Theme.Border, 1)
             RCM.Rect(vector.create(tx+1,ty+1,1), vector.create(w-2,18,0), RCM.Theme.TooltipBg, 1)
             RCM.Label(vector.create(tx+5,ty+3,1), t, RCM.Theme.Text)
@@ -476,5 +559,4 @@ function RCM:CreateWindow(props)
 end
 
 RCM:Init()
-
 return RCM
