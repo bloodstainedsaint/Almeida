@@ -1,6 +1,6 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v2.5
--- Features: Stable Core, Watermark, Keystrokes (WASD) with Modes
+-- [ RCM ] Severe UI Library v3.0
+-- Features: Keybind List (Always/Active modes), Binders (Hold logic), Watermark, Config
 
 local RCM = {}
 local Library = {}
@@ -11,7 +11,7 @@ RCM.Theme = {
     Border     = Color3.new(0.023, 0.023, 0.023),
     Accent     = Color3.new(0.8039, 0.0, 0.4980),
     Text       = Color3.new(1, 1, 1),
-    TextDim    = Color3.new(0.6, 0.6, 0.6), -- Dim color for unpressed keys
+    TextDim    = Color3.new(0.5, 0.5, 0.5),
     Section    = Color3.new(0.588, 0.588, 0.588),
     Hover      = Color3.new(0.2, 0.2, 0.2),
     TooltipBg  = Color3.new(0.05, 0.05, 0.05)
@@ -31,19 +31,12 @@ RCM.State = {
     LastTick = 0, FrameCount = 0, CurrentFPS = 60,
 
     -- HUD States
-    Watermark = { 
-        Visible = true, 
-        Pos = vector.create(50, 50, 0), 
-        Dragging = false, Offset = vector.create(0,0,0) 
-    },
-    
-    KeyStrokes = { 
-        Visible = true, 
-        Mode = "Always", -- "Always" or "Pressed"
-        Pos = vector.create(50, 100, 0), 
-        Dragging = false, Offset = vector.create(0,0,0) 
-    }
+    Watermark = { Visible = true, Pos = vector.create(50, 50, 0), Dragging = false, Offset = vector.create(0,0,0) },
+    KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) }
 }
+
+-- Registry for logic updates (Binders need to run when menu is closed)
+RCM.Binders = {} 
 
 -- [ 2 ] Helpers
 function RCM.Rect(pos, size, color, alpha)
@@ -68,7 +61,7 @@ function RCM:UpdateInput()
         self.State.MouseDown = false
         self.State.MouseHeld = false
         self.State.Watermark.Dragging = false
-        self.State.KeyStrokes.Dragging = false
+        self.State.KeybindList.Dragging = false
     end
 
     local keys = getpressedkeys()
@@ -84,12 +77,37 @@ function RCM:UpdateInput()
         self.State.LastToggle = tick()
     end
 
-    -- FPS
+    -- FPS Logic
     self.State.FrameCount = self.State.FrameCount + 1
     if (tick() - self.State.LastTick) >= 1 then
         self.State.CurrentFPS = self.State.FrameCount
         self.State.FrameCount = 0
         self.State.LastTick = tick()
+    end
+end
+
+function RCM:UpdateBinders()
+    local keys = getpressedkeys() or {}
+    local keyMap = {}
+    for _, k in ipairs(keys) do keyMap[k] = true end
+
+    for _, bind in ipairs(RCM.Binders) do
+        if bind.listening then
+            -- Rebinding logic
+            for _, k in ipairs(keys) do
+                if k ~= "Unknown" and k ~= "LeftMouse" then
+                    bind.key = k
+                    bind.listening = false
+                end
+            end
+        else
+            -- Active state logic (Hold mode)
+            local isActive = keyMap[bind.key] == true
+            if bind.active ~= isActive then
+                bind.active = isActive
+                if bind.callback then bind.callback(isActive) end
+            end
+        end
     end
 end
 
@@ -102,7 +120,6 @@ end
 -- [ 3 ] HUD Functions
 function RCM:DrawWatermark()
     if not self.State.Watermark.Visible then return end
-    
     local pos = self.State.Watermark.Pos
     local text = "Severe UI | FPS: " .. tostring(self.State.CurrentFPS)
     local width = (7 * #text) + 20
@@ -126,60 +143,57 @@ function RCM:DrawWatermark()
     RCM.Label(vector.create(pos.x + 10, pos.y + 4, 0), text, self.Theme.Text)
 end
 
-function RCM:DrawKeyStrokes()
-    if not self.State.KeyStrokes.Visible then return end
+function RCM:DrawKeybindList()
+    if not self.State.KeybindList.Visible then return end
     
-    local pos = self.State.KeyStrokes.Pos
-    local size = vector.create(130, 90, 0) -- Total size for dragging area
+    -- Filter items based on mode
+    local itemsToShow = {}
+    for _, bind in ipairs(RCM.Binders) do
+        if self.State.KeybindList.Mode == "Always" then
+            table.insert(itemsToShow, bind)
+        elseif self.State.KeybindList.Mode == "Active" and bind.active then
+            table.insert(itemsToShow, bind)
+        end
+    end
+    
+    -- Don't draw if empty in "Active" mode, unless dragging enabled
+    if #itemsToShow == 0 and not self.State.Enabled then return end
+
+    local pos = self.State.KeybindList.Pos
+    local width = 150
+    local headerHeight = 22
+    local itemHeight = 18
+    local totalHeight = headerHeight + (#itemsToShow * itemHeight) + 5
+    local size = vector.create(width, totalHeight, 0)
 
     -- Drag Logic
     if self.State.Enabled then
         local click = self.State.MouseDown and not self.State.MouseHeld
-        if click and self:IsMouseOver(pos, size) then
-            self.State.KeyStrokes.Dragging = true
-            self.State.KeyStrokes.Offset = vector.create(self.State.MousePos.x - pos.x, self.State.MousePos.y - pos.y, 0)
+        -- Allow dragging header
+        if click and self:IsMouseOver(pos, vector.create(width, headerHeight, 0)) then
+            self.State.KeybindList.Dragging = true
+            self.State.KeybindList.Offset = vector.create(self.State.MousePos.x - pos.x, self.State.MousePos.y - pos.y, 0)
         end
-        if self.State.KeyStrokes.Dragging then
-            self.State.KeyStrokes.Pos = vector.create(self.State.MousePos.x - self.State.KeyStrokes.Offset.x, self.State.MousePos.y - self.State.KeyStrokes.Offset.y, 0)
-            pos = self.State.KeyStrokes.Pos
+        if self.State.KeybindList.Dragging then
+            self.State.KeybindList.Pos = vector.create(self.State.MousePos.x - self.State.KeybindList.Offset.x, self.State.MousePos.y - self.State.KeybindList.Offset.y, 0)
+            pos = self.State.KeybindList.Pos
         end
     end
 
-    -- Key State Logic
-    local keys = getpressedkeys() or {}
-    local function isPressed(k) 
-        for _, v in ipairs(keys) do if v == k then return true end end 
-        return false 
+    -- Draw Container
+    RCM.Rect(pos, size, self.Theme.Border, 1)
+    RCM.Rect(vector.create(pos.x + 1, pos.y + 1, 0), vector.create(width - 2, totalHeight - 2, 0), self.Theme.Background, 1)
+    RCM.Rect(pos, vector.create(width, 2, 0), self.Theme.Accent, 1)
+    RCM.Label(vector.create(pos.x + (width/2) - 25, pos.y + 4, 0), "Keybinds", self.Theme.Text)
+    
+    -- Draw Items
+    local cy = pos.y + headerHeight + 2
+    for _, bind in ipairs(itemsToShow) do
+        local col = bind.active and self.Theme.Accent or self.Theme.TextDim
+        local txt = string.format("[%s] %s", bind.key, bind.name)
+        RCM.Label(vector.create(pos.x + 10, cy, 0), txt, col)
+        cy = cy + itemHeight
     end
-
-    -- Draw Single Key Helper
-    local function drawKey(keyName, xOff, yOff, w, h)
-        local pressed = isPressed(keyName)
-        
-        -- MODE: "Pressed" -> Hide if not pressed
-        if self.State.KeyStrokes.Mode == "Pressed" and not pressed then
-            return -- Don't draw
-        end
-
-        local kPos = vector.create(pos.x + xOff, pos.y + yOff, 0)
-        
-        -- MODE: "Always" -> Dim if not pressed, Accent if pressed
-        local bg = pressed and self.Theme.Accent or self.Theme.Background
-        local txt = pressed and self.Theme.Text or self.Theme.TextDim
-        local alpha = pressed and 1 or 0.5 -- slightly transparent if inactive
-
-        RCM.Rect(kPos, vector.create(w, h, 0), self.Theme.Border, 1)
-        RCM.Rect(vector.create(kPos.x + 1, kPos.y + 1, 0), vector.create(w - 2, h - 2, 0), bg, alpha)
-        
-        -- Center text roughly
-        RCM.Label(vector.create(kPos.x + (w/2) - 4, kPos.y + (h/2) - 6, 0), keyName, txt)
-    end
-
-    -- Layout: W (Top), A S D (Bottom)
-    drawKey("W", 45, 0, 40, 40)
-    drawKey("A", 0, 45, 40, 40)
-    drawKey("S", 45, 45, 40, 40)
-    drawKey("D", 90, 45, 40, 40)
 end
 
 -- [ 4 ] Library Core
@@ -345,7 +359,6 @@ function Library:Window(props)
                         displayName = item.name .. ": " .. item.selected
                         RCM.Label(vector.create(nameX, contentY + 2, 0), displayName, RCM.Theme.Text)
                         RCM.Label(vector.create(x + 250, contentY + 2, 0), icon, RCM.Theme.Section, true)
-                        
                         if item.open then
                             local dropY = contentY + 18
                             for _, opt in ipairs(item.options) do
@@ -365,12 +378,22 @@ function Library:Window(props)
                             end
                             contentY = contentY + (#item.options * 18)
                         end
+
+                    -- [ FEATURE ] Keybind Binder
+                    elseif item.type == "binder" then
+                        if itemClick then item.listening = not item.listening end
+                        
+                        local bindText = item.key
+                        if item.listening then bindText = "..." end
+                        
+                        local txt = item.name .. ": [" .. bindText .. "]"
+                        local col = item.listening and RCM.Theme.Accent or RCM.Theme.Text
+                        
+                        RCM.Label(vector.create(nameX, contentY + 2, 0), txt, col)
                     end
 
                     if item.tooltip then
-                        local nameWidth = (7 * #displayName)
-                        local iconX = nameX + nameWidth + 8
-                        local iconPos = vector.create(iconX, contentY + 2, 0)
+                        local iconPos = vector.create(x + 260, contentY + 2, 0)
                         RCM.Label(iconPos, "(?)", RCM.Theme.Section)
                         if RCM:IsMouseOver(iconPos, vector.create(15, 13, 0)) then
                             RCM.State.ActiveTooltip = item.tooltip
@@ -392,6 +415,22 @@ function Library:Window(props)
             function section:Slider(p) table.insert(section.items, {type="slider", name=p.Name, value=p.Default or p.Min, min=p.Min, max=p.Max, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
             function section:Button(p) table.insert(section.items, {type="button", name=p.Name, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
             function section:Dropdown(p) table.insert(section.items, {type="dropdown", name=p.Name, options=p.Options, selected=p.Default or p.Options[1], open=false, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
+            
+            -- [ NEW ] Binder Component
+            function section:Binder(p) 
+                local bind = {
+                    type="binder", 
+                    name=p.Name, 
+                    key=p.Default or "None", 
+                    active=false, 
+                    listening=false, 
+                    callback=p.Callback or function()end, 
+                    tooltip=p.Tooltip
+                }
+                table.insert(section.items, bind)
+                table.insert(RCM.Binders, bind) -- Add to global registry
+            end
+            
             table.insert(page.sections, section)
             return section
         end
@@ -406,10 +445,11 @@ function RCM:Init()
     local renderEvent = RunService.Render or game:GetService("RunService").RenderStepped
     renderEvent:Connect(function()
         self:UpdateInput()
+        self:UpdateBinders() -- [ NEW ] Check logic every frame
         self.State.ActiveTooltip = nil
         
         self:DrawWatermark()
-        self:DrawKeyStrokes() -- [ NEW ]
+        self:DrawKeybindList() -- [ NEW ] Draw Keybind HUD
 
         for _, win in ipairs(self.Windows) do
             win:Draw()
