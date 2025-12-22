@@ -1,6 +1,6 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v4.2
--- Fixed: Keybind List Clipping, Added Custom Watermark Support
+-- [ RCM ] Severe UI Library v4.4
+-- Fixed: Text Clipping (Names now auto-truncate if they hit values/binds)
 
 local RCM = {}
 local Library = {}
@@ -19,7 +19,6 @@ RCM.Theme = {
 
 RCM.Layer = { Base = 0, Section = 1, Item = 2, Text = 3, Popup = 5, Tooltip = 10 }
 
--- Layout Constants
 local WIN_W = 550
 local COL_W = 260
 local COL_GAP = 10
@@ -34,17 +33,8 @@ RCM.State = {
     LastToggle = 0,
     ActiveTooltip = nil,
     ScreenSize = vector.create(1920, 1080, 0),
-    
-    Watermark = { 
-        Visible = true, 
-        Text = "Severe UI", -- Default Text
-        Extra = true, -- Show FPS?
-        Pos = vector.create(50, 50, 0), 
-        Dragging = false, Offset = vector.create(0,0,0) 
-    },
-    
+    Watermark = { Visible = true, Text = "Severe UI", Extra = true, Pos = vector.create(50, 50, 0), Dragging = false, Offset = vector.create(0,0,0) },
     KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) },
-    
     LastTick = 0, FrameCount = 0, CurrentFPS = 60
 }
 
@@ -57,6 +47,20 @@ end
 
 function RCM.Label(pos, text, color, center)
     DrawingImmediate.Text(pos, 13, color, 1, text, center or false, "Proggy")
+end
+
+-- [ NEW ] Text Truncator
+-- Ensures 'text' fits within 'maxWidth' (pixels), adds ".." if clipped
+local function FitText(text, maxWidth)
+    local charWidth = 7 -- Proggy is approx 7px wide
+    local estimatedWidth = #text * charWidth
+    
+    if estimatedWidth > maxWidth then
+        local maxChars = math.floor(maxWidth / charWidth) - 2
+        if maxChars < 1 then return ".." end
+        return string.sub(text, 1, maxChars) .. ".."
+    end
+    return text
 end
 
 function RCM:UpdateInput()
@@ -126,7 +130,6 @@ function RCM:IsMouseOver(pos, size)
        and m.y >= pos.y and m.y <= pos.y + size.y
 end
 
--- [ NEW ] Custom Watermark Setter
 function RCM:SetWatermark(text)
     self.State.Watermark.Text = text
 end
@@ -135,13 +138,8 @@ end
 function RCM:DrawWatermark()
     if not self.State.Watermark.Visible then return end
     local pos = self.State.Watermark.Pos
-    
-    -- Construct Text
     local text = self.State.Watermark.Text
-    if self.State.Watermark.Extra then
-        text = text .. " | FPS: " .. tostring(self.State.CurrentFPS)
-    end
-    
+    if self.State.Watermark.Extra then text = text .. " | FPS: " .. tostring(self.State.CurrentFPS) end
     local width = (7 * #text) + 20
     local size = vector.create(width, 22, 0)
     
@@ -165,7 +163,6 @@ end
 
 function RCM:DrawKeybindList()
     if not self.State.KeybindList.Visible then return end
-    
     local itemsToShow = {}
     for _, bind in ipairs(RCM.Binders) do
         if self.State.KeybindList.Mode == "Always" then table.insert(itemsToShow, bind)
@@ -173,12 +170,10 @@ function RCM:DrawKeybindList()
     end
     if #itemsToShow == 0 and not self.State.Enabled then return end
 
-    -- [ FIX ] Better Width Calculation
     local maxWidth = 130
     for _, b in ipairs(itemsToShow) do
-        -- Measure Name + Key + Spacing + Brackets
         local nameW = (7 * #b.name)
-        local keyW = (7 * (#b.key + 2)) -- +2 for brackets []
+        local keyW = (7 * (#b.key + 2)) 
         local totalW = nameW + keyW + 30
         if totalW > maxWidth then maxWidth = totalW end
     end
@@ -208,14 +203,8 @@ function RCM:DrawKeybindList()
     for _, bind in ipairs(itemsToShow) do
         local col = bind.active and self.Theme.Accent or self.Theme.TextDim
         local keyTxt = "[" .. bind.key .. "]"
-        
-        -- Name on Left
         RCM.Label(vector.create(pos.x + 5, cy, RCM.Layer.Text), bind.name, self.Theme.Text)
-        
-        -- Key on Right (Aligned to Edge)
-        local keyW = (7 * #keyTxt)
-        RCM.Label(vector.create(pos.x + maxWidth - keyW - 5, cy, RCM.Layer.Text), keyTxt, col)
-        
+        RCM.Label(vector.create(pos.x + maxWidth - (7 * #keyTxt) - 5, cy, RCM.Layer.Text), keyTxt, col)
         cy = cy + 18
     end
 end
@@ -223,7 +212,7 @@ end
 -- [ 4 ] Library Core
 function Library:Window(props)
     if props.ToggleKey then RCM.State.ToggleKey = props.ToggleKey end
-    if props.Name then RCM.State.Watermark.Text = props.Name end -- Default watermark to window name
+    if props.Name then RCM.State.Watermark.Text = props.Name end
 
     local window = {
         name = props.Name or "Severe UI",
@@ -262,9 +251,8 @@ function Library:Window(props)
                     if item.type == "dropdown" and item.open then h = h + (#item.options * 20)
                     elseif item.type == "colorpicker" and item.open then h = h + 70 end
                 end
-                
-                if section.side == "Left" then section.renderY = leftY; leftY = leftY + h + SEC_PAD
-                else section.renderY = rightY; rightY = rightY + h + SEC_PAD end
+                if section.side == "Left" then section.renderY = leftY; leftY = leftY + h + 10
+                else section.renderY = rightY; rightY = rightY + h + 10 end
             end
         end
         
@@ -274,7 +262,6 @@ function Library:Window(props)
         RCM.Rect(vector.create(x, y, RCM.Layer.Base), self.size, RCM.Theme.Border, 1)
         RCM.Rect(vector.create(x + 1, y + 1, RCM.Layer.Section), vector.create(WIN_W - 2, totalH + 8, 0), RCM.Theme.Background, 1)
         RCM.Rect(vector.create(x, y, RCM.Layer.Item), vector.create(WIN_W, 2, 0), RCM.Theme.Accent, 1)
-        
         RCM.Label(vector.create(x + 10, y + 5, RCM.Layer.Text), self.name, RCM.Theme.Text)
         
         local tabX = 10
@@ -288,11 +275,11 @@ function Library:Window(props)
             if isAct then RCM.Rect(vector.create(x + tabX + 5, y + tabY + 15, RCM.Layer.Text), vector.create(w - 10, 1, 0), RCM.Theme.Accent, 1) end
             tabX = tabX + w
         end
-        RCM.Rect(vector.create(x + 10, y + 45, RCM.Layer.Text), vector.create(WIN_W - 20, 1, 0), RCM.Theme.Section, 1)
+        RCM.Rect(vector.create(x + 10, y + 45, RCM.Layer.Text), vector.create(530, 1, 0), RCM.Theme.Section, 1)
 
         if page then
             for _, section in ipairs(page.sections) do
-                local sx = (section.side == "Left") and (x + 12) or (x + 12 + COL_W + COL_GAP)
+                local sx = (section.side == "Left") and (x + 12) or (x + 12 + 260 + 10)
                 local sy = y + section.renderY
                 
                 local sh = 25
@@ -311,9 +298,9 @@ function Library:Window(props)
                 for _, item in ipairs(section.items) do
                     local iH = 24
                     local itemPos = vector.create(sx + 5, cy, 0)
-                    local hover = RCM:IsMouseOver(itemPos, vector.create(COL_W - 10, 20, 0))
+                    local hover = RCM:IsMouseOver(itemPos, vector.create(250, 20, 0))
                     local iClick = hover and click
-                    if hover then RCM.Rect(vector.create(itemPos.x, itemPos.y, RCM.Layer.Item), vector.create(COL_W - 10, 20, 0), RCM.Theme.Hover, 0.5) end
+                    if hover then RCM.Rect(vector.create(itemPos.x, itemPos.y, RCM.Layer.Item), vector.create(250, 20, 0), RCM.Theme.Hover, 0.5) end
                     
                     local nameX = sx + 10
                     local valX  = sx + COL_W - 15
@@ -321,14 +308,14 @@ function Library:Window(props)
                     
                     if item.type == "toggle" then
                         if iClick then item.value = not item.value; item.callback(item.value) end
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), item.name, RCM.Theme.Text)
+                        RCM.Label(vector.create(nameX, cy + 3, zItem), FitText(item.name, 200), RCM.Theme.Text) -- FitText
                         local boxCol = item.value and RCM.Theme.Accent or RCM.Theme.Section
                         RCM.Rect(vector.create(valX - 10, cy + 5, zItem), vector.create(10, 10, 0), RCM.Theme.Border, 1)
                         RCM.Rect(vector.create(valX - 9, cy + 6, zItem), vector.create(8, 8, 0), boxCol, 1)
 
                     elseif item.type == "button" then
                         if iClick then item.callback() end
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), item.name, hover and RCM.Theme.Accent or RCM.Theme.Text)
+                        RCM.Label(vector.create(nameX, cy + 3, zItem), FitText(item.name, 220), hover and RCM.Theme.Accent or RCM.Theme.Text)
 
                     elseif item.type == "slider" then
                         if hover and isleftpressed() then
@@ -336,21 +323,22 @@ function Library:Window(props)
                             local nv = math.floor(item.min + (item.max - item.min) * pct)
                             if nv ~= item.value then item.value = nv; item.callback(nv) end
                         end
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), item.name, RCM.Theme.Text)
+                        RCM.Label(vector.create(nameX, cy + 3, zItem), FitText(item.name, 120), RCM.Theme.Text)
                         RCM.Label(vector.create(valX - 120, cy + 3, zItem), tostring(item.value), RCM.Theme.Text)
                         RCM.Rect(vector.create(valX - 100, cy + 8, zItem), vector.create(100, 4, 0), RCM.Theme.Background, 1)
                         RCM.Rect(vector.create(valX - 100, cy + 8, zItem), vector.create(((item.value - item.min)/(item.max - item.min))*100, 4, 0), RCM.Theme.Accent, 1)
 
                     elseif item.type == "dropdown" then
                         if iClick then item.open = not item.open end
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), item.name, RCM.Theme.Text)
+                        local display = FitText(item.name, 150)
+                        RCM.Label(vector.create(nameX, cy + 3, zItem), display, RCM.Theme.Text)
                         RCM.Label(vector.create(valX - (7*#item.selected), cy + 3, zItem), item.selected, RCM.Theme.Accent)
                         if item.open then
                             local dy = cy + 24
                             for _, opt in ipairs(item.options) do
                                 local oPos = vector.create(sx + 15, dy, 0)
-                                if RCM:IsMouseOver(oPos, vector.create(COL_W - 30, 18, 0)) then
-                                    RCM.Rect(vector.create(oPos.x, oPos.y, RCM.Layer.Popup), vector.create(COL_W - 30, 18, 0), RCM.Theme.Hover, 0.5)
+                                if RCM:IsMouseOver(oPos, vector.create(230, 18, 0)) then
+                                    RCM.Rect(vector.create(oPos.x, oPos.y, RCM.Layer.Popup), vector.create(230, 18, 0), RCM.Theme.Hover, 0.5)
                                     if click then item.selected = opt; item.open = false; item.callback(opt) end
                                 end
                                 RCM.Label(vector.create(sx + 20, dy + 2, RCM.Layer.Popup), opt, (item.selected == opt) and RCM.Theme.Accent or RCM.Theme.Text)
@@ -359,15 +347,24 @@ function Library:Window(props)
                             iH = iH + (#item.options * 20)
                         end
 
+                    -- [ FIX ] Binder: Calculate Truncation based on Key Text Width
                     elseif item.type == "binder" then
                         if iClick then item.listening = not item.listening end
                         local txt = "[" .. (item.listening and "..." or item.key) .. "]"
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), item.name, RCM.Theme.Text)
+                        
+                        -- Calculate how much space the KEY takes
+                        local keyWidth = (7 * #txt)
+                        -- Calculate remaining space for NAME (260 - padding - keywidth)
+                        local availWidth = 230 - keyWidth 
+                        
+                        local displayName = FitText(item.name, availWidth)
+                        
+                        RCM.Label(vector.create(nameX, cy + 3, zItem), displayName, RCM.Theme.Text)
                         RCM.Label(vector.create(valX - (7*#txt), cy + 3, zItem), txt, item.listening and RCM.Theme.Accent or RCM.Theme.TextDim)
 
                     elseif item.type == "colorpicker" then
                         if iClick then item.open = not item.open end
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), item.name, RCM.Theme.Text)
+                        RCM.Label(vector.create(nameX, cy + 3, zItem), FitText(item.name, 180), RCM.Theme.Text)
                         RCM.Rect(vector.create(valX - 15, cy + 5, zItem), vector.create(20, 10, 0), item.color, 1)
                         if item.open then
                             local py = cy + 24
@@ -392,7 +389,10 @@ function Library:Window(props)
                     end
 
                     if item.tooltip then
-                        local nameW = (7 * #item.name)
+                        -- [ FIX ] Tooltip Position relies on the *truncated* name width
+                        -- We re-calculate FitText width roughly here
+                        local usedName = FitText(item.name, 200) -- Approx
+                        local nameW = (7 * #usedName)
                         local tipX = nameX + nameW + 8
                         local tipPos = vector.create(tipX, cy + 3, zItem)
                         RCM.Label(tipPos, "(?)", RCM.Theme.Section)
@@ -484,10 +484,8 @@ function RCM:Init()
         self:UpdateInput()
         self:UpdateBinders()
         self.State.ActiveTooltip = nil
-        
         self:DrawWatermark()
         self:DrawKeybindList()
-
         for _, win in ipairs(self.Windows) do win:Draw() end
         
         if self.State.ActiveTooltip then
