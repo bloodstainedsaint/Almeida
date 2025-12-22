@@ -1,6 +1,6 @@
 --!optimization 2
 -- [ RCM ] Render Control Module + Severe UI Library
--- Fixed: Toggle Key now compares STRINGS directly (e.g. "Delete" == "Delete")
+-- Fixed: Tooltip Clipping (Z-Index), String Keys, Screen Clamping
 
 local RCM = {}
 local Library = {}
@@ -22,9 +22,10 @@ RCM.State = {
     MousePos = vector.create(0, 0, 0),
     MouseDown = false,
     MouseHeld = false,
-    ToggleKey = "Delete", -- Default String
+    ToggleKey = "Delete",
     LastToggle = 0,
-    ActiveTooltip = nil
+    ActiveTooltip = nil,
+    ScreenSize = vector.create(1920, 1080, 0) -- Default fallback
 }
 
 -- [ 2 ] Helpers
@@ -37,9 +38,14 @@ function RCM.Label(pos, text, color, center)
 end
 
 function RCM:UpdateInput()
-    -- Mouse
+    -- Mouse & Screen Size
     local s, mPos = pcall(getmouseposition)
     if s and mPos then self.State.MousePos = mPos end
+    
+    -- Try to get actual screen size (if camera exists)
+    if workspace.CurrentCamera then
+        self.State.ScreenSize = workspace.CurrentCamera.ViewportSize
+    end
 
     local currentDown = isleftpressed()
     if currentDown and not self.State.MouseDown then
@@ -51,23 +57,18 @@ function RCM:UpdateInput()
         self.State.MouseHeld = false
     end
 
-    -- [ FIX ] Toggle Key Check (String vs String)
-    local keys = getpressedkeys() -- Returns {"Delete", "W", etc}
+    -- Toggle Key
+    local keys = getpressedkeys()
     local isTogglePressed = false
-    
     if keys then
         for _, k in ipairs(keys) do
-            if k == self.State.ToggleKey then 
-                isTogglePressed = true 
-                break 
-            end
+            if k == self.State.ToggleKey then isTogglePressed = true break end
         end
     end
 
-    -- Use os.clock() for safety
-    if isTogglePressed and (os.clock() - self.State.LastToggle > 0.3) then
+    if isTogglePressed and (tick() - self.State.LastToggle > 0.3) then
         self.State.Enabled = not self.State.Enabled
-        self.State.LastToggle = os.clock()
+        self.State.LastToggle = tick()
     end
 end
 
@@ -79,10 +80,7 @@ end
 
 -- [ 3 ] Library Core
 function Library:Window(props)
-    -- Simply store the string directly
-    if props.ToggleKey then
-        RCM.State.ToggleKey = props.ToggleKey
-    end
+    if props.ToggleKey then RCM.State.ToggleKey = props.ToggleKey end
 
     local window = {
         name = props.Name or "Severe UI",
@@ -113,7 +111,7 @@ function Library:Window(props)
             end
         end
 
-        -- Header & Tab Calculation
+        -- Header & Tabs
         local tabXCursor = 10
         local tabYOffset = 25
         local tabRowHeight = 18
@@ -129,7 +127,7 @@ function Library:Window(props)
         end
         local headerHeight = tabYOffset + 20 
 
-        -- Content Calculation
+        -- Content
         local currentPage = self.pages[self.activePage]
         local contentHeight = 0
 
@@ -202,7 +200,7 @@ function Library:Window(props)
                     local itemClick = hovered and click
 
                     if hovered then RCM.Rect(itemPos, itemSize, RCM.Theme.Hover, 0.5) end
-                    
+
                     local displayName = item.name
                     local nameX = x + 20
 
@@ -308,14 +306,26 @@ function RCM:Init()
         for _, win in ipairs(self.Windows) do
             win:Draw()
         end
+        
         if self.State.ActiveTooltip then
             local tipText = self.State.ActiveTooltip
             local mPos = self.State.MousePos
-            local textW = (7 * #tipText) + 10
-            local tipPos = vector.create(mPos.x + 12, mPos.y + 12, 0)
+            local screen = self.State.ScreenSize
+            local textW = (8 * #tipText) + 12 -- Slightly wider
+            
+            -- [ FIX ] Clamp Position so it doesn't go off screen
+            local tipX = mPos.x + 12
+            local tipY = mPos.y + 12
+            
+            if (tipX + textW) > screen.x then tipX = screen.x - textW - 5 end
+            if (tipY + 20) > screen.y then tipY = screen.y - 25 end
+            
+            -- [ FIX ] Z-Index Bump (Z = 1)
+            local tipPos = vector.create(tipX, tipY, 1)
+            
             RCM.Rect(tipPos, vector.create(textW, 20, 0), RCM.Theme.Border, 1)
-            RCM.Rect(vector.create(tipPos.x + 1, tipPos.y + 1, 0), vector.create(textW - 2, 18, 0), RCM.Theme.TooltipBg, 1)
-            RCM.Label(vector.create(tipPos.x + 5, tipPos.y + 3, 0), tipText, RCM.Theme.Text)
+            RCM.Rect(vector.create(tipX + 1, tipY + 1, 1), vector.create(textW - 2, 18, 0), RCM.Theme.TooltipBg, 1)
+            RCM.Label(vector.create(tipX + 5, tipY + 3, 1), tipText, RCM.Theme.Text)
         end
     end)
 end
