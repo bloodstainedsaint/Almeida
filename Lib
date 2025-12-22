@@ -1,6 +1,6 @@
 --!optimization 2
 -- [ RCM ] Render Control Module + Severe UI Library
--- Fixed: Tooltip Clipping (Z-Index), String Keys, Screen Clamping
+-- Features: Stable Core + Draggable Watermark
 
 local RCM = {}
 local Library = {}
@@ -25,7 +25,14 @@ RCM.State = {
     ToggleKey = "Delete",
     LastToggle = 0,
     ActiveTooltip = nil,
-    ScreenSize = vector.create(1920, 1080, 0) -- Default fallback
+    ScreenSize = vector.create(1920, 1080, 0),
+    -- [ NEW ] Watermark State
+    Watermark = { 
+        Visible = true, 
+        Pos = vector.create(50, 50, 0), 
+        Dragging = false, 
+        Offset = vector.create(0,0,0) 
+    }
 }
 
 -- [ 2 ] Helpers
@@ -38,14 +45,9 @@ function RCM.Label(pos, text, color, center)
 end
 
 function RCM:UpdateInput()
-    -- Mouse & Screen Size
     local s, mPos = pcall(getmouseposition)
     if s and mPos then self.State.MousePos = mPos end
-    
-    -- Try to get actual screen size (if camera exists)
-    if workspace.CurrentCamera then
-        self.State.ScreenSize = workspace.CurrentCamera.ViewportSize
-    end
+    if workspace.CurrentCamera then self.State.ScreenSize = workspace.CurrentCamera.ViewportSize end
 
     local currentDown = isleftpressed()
     if currentDown and not self.State.MouseDown then
@@ -55,9 +57,10 @@ function RCM:UpdateInput()
     elseif not currentDown then
         self.State.MouseDown = false
         self.State.MouseHeld = false
+        -- Stop dragging watermark
+        self.State.Watermark.Dragging = false
     end
 
-    -- Toggle Key
     local keys = getpressedkeys()
     local isTogglePressed = false
     if keys then
@@ -76,6 +79,42 @@ function RCM:IsMouseOver(pos, size)
     local m = self.State.MousePos
     return m.x >= pos.x and m.x <= pos.x + size.x 
        and m.y >= pos.y and m.y <= pos.y + size.y
+end
+
+-- [ NEW ] Watermark Function
+function RCM:DrawWatermark()
+    if not self.State.Watermark.Visible then return end
+    
+    local pos = self.State.Watermark.Pos
+    
+    -- FPS Calculation
+    local fps = 60
+    local s, dt = pcall(function() return game:GetService("RunService").RenderStepped:Wait() end)
+    if s and dt > 0 then fps = math.floor(1/dt) end
+    
+    local text = "Severe UI | FPS: " .. tostring(fps)
+    local width = (7 * #text) + 20
+    local size = vector.create(width, 22, 0)
+    
+    -- Drag Logic (Only allows moving when menu is OPEN)
+    if self.State.Enabled then
+        local click = self.State.MouseDown and not self.State.MouseHeld
+        if click and self:IsMouseOver(pos, size) then
+            self.State.Watermark.Dragging = true
+            self.State.Watermark.Offset = vector.create(self.State.MousePos.x - pos.x, self.State.MousePos.y - pos.y, 0)
+        end
+        
+        if self.State.Watermark.Dragging then
+            self.State.Watermark.Pos = vector.create(self.State.MousePos.x - self.State.Watermark.Offset.x, self.State.MousePos.y - self.State.Watermark.Offset.y, 0)
+            pos = self.State.Watermark.Pos
+        end
+    end
+
+    -- Draw It
+    RCM.Rect(pos, size, self.Theme.Border, 1)
+    RCM.Rect(vector.create(pos.x + 1, pos.y + 1, 0), vector.create(size.x - 2, size.y - 2, 0), self.Theme.Background, 1)
+    RCM.Rect(pos, vector.create(width, 2, 0), self.Theme.Accent, 1)
+    RCM.Label(vector.create(pos.x + 10, pos.y + 4, 0), text, self.Theme.Text)
 end
 
 -- [ 3 ] Library Core
@@ -303,6 +342,10 @@ function RCM:Init()
     renderEvent:Connect(function()
         self:UpdateInput()
         self.State.ActiveTooltip = nil
+        
+        -- [ NEW ] Draw Watermark
+        self:DrawWatermark()
+
         for _, win in ipairs(self.Windows) do
             win:Draw()
         end
@@ -311,16 +354,14 @@ function RCM:Init()
             local tipText = self.State.ActiveTooltip
             local mPos = self.State.MousePos
             local screen = self.State.ScreenSize
-            local textW = (8 * #tipText) + 12 -- Slightly wider
+            local textW = (8 * #tipText) + 12
             
-            -- [ FIX ] Clamp Position so it doesn't go off screen
             local tipX = mPos.x + 12
             local tipY = mPos.y + 12
             
             if (tipX + textW) > screen.x then tipX = screen.x - textW - 5 end
             if (tipY + 20) > screen.y then tipY = screen.y - 25 end
             
-            -- [ FIX ] Z-Index Bump (Z = 1)
             local tipPos = vector.create(tipX, tipY, 1)
             
             RCM.Rect(tipPos, vector.create(textW, 20, 0), RCM.Theme.Border, 1)
