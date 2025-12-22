@@ -1,6 +1,5 @@
 --!optimization 2
--- [ RCM ] Render Control Module + Severe UI Library
--- Features: Tooltips, Tab Wrapping, Mouse Interaction, Draggable, Delete Toggle
+-- [ RCM ] Render Control Module + Severe UI Library (Fixed Tooltips)
 
 local RCM = {}
 local Library = {}
@@ -14,7 +13,7 @@ RCM.Theme = {
     TextDim    = Color3.new(0.6, 0.6, 0.6),
     Section    = Color3.new(0.588, 0.588, 0.588),
     Hover      = Color3.new(0.2, 0.2, 0.2),
-    TooltipBg  = Color3.new(0.05, 0.05, 0.05) -- Darker bg for tooltips
+    TooltipBg  = Color3.new(0.05, 0.05, 0.05)
 }
 
 RCM.State = {
@@ -22,9 +21,9 @@ RCM.State = {
     MousePos = vector.create(0, 0, 0),
     MouseDown = false,
     MouseHeld = false,
-    ToggleKey = 0x2E, -- VK_DELETE
+    ToggleKey = 0x2E,
     LastToggle = 0,
-    ActiveTooltip = nil -- Stores tooltip data for the current frame
+    ActiveTooltip = nil
 }
 
 -- [ 2 ] Helpers
@@ -104,7 +103,7 @@ function Library:Window(props)
             end
         end
 
-        -- Header Calculation
+        -- Header Calc
         local tabXCursor = 10
         local tabYOffset = 25
         local tabRowHeight = 18
@@ -120,7 +119,7 @@ function Library:Window(props)
         end
         local headerHeight = tabYOffset + 20 
 
-        -- Content Calculation
+        -- Content Calc
         local currentPage = self.pages[self.activePage]
         local contentHeight = 0
 
@@ -194,9 +193,9 @@ function Library:Window(props)
 
                     if hovered then RCM.Rect(itemPos, itemSize, RCM.Theme.Hover, 0.5) end
 
-                    -- Common Label Draw (Optimized)
+                    -- [ FIX ] Calculate display name dynamically for Tooltip placement
+                    local displayName = item.name
                     local nameX = x + 20
-                    local nameWidth = (7 * #item.name)
                     
                     if item.type == "toggle" then
                         if itemClick then 
@@ -205,12 +204,12 @@ function Library:Window(props)
                         end
                         local status = item.value and "[ON]" or "[OFF]"
                         local col = item.value and RCM.Theme.Accent or RCM.Theme.Text
-                        RCM.Label(vector.create(nameX, contentY + 2, 0), item.name, RCM.Theme.Text)
+                        RCM.Label(vector.create(nameX, contentY + 2, 0), displayName, RCM.Theme.Text)
                         RCM.Label(vector.create(x + 240, contentY + 2, 0), status, col, true)
 
                     elseif item.type == "button" then
                         if itemClick then item.callback() end
-                        RCM.Label(vector.create(nameX, contentY + 2, 0), item.name, hovered and RCM.Theme.Accent or RCM.Theme.Text)
+                        RCM.Label(vector.create(nameX, contentY + 2, 0), displayName, hovered and RCM.Theme.Accent or RCM.Theme.Text)
 
                     elseif item.type == "slider" then
                         if hovered and isleftpressed() then
@@ -222,7 +221,7 @@ function Library:Window(props)
                                 item.callback(newVal)
                             end
                         end
-                        RCM.Label(vector.create(nameX, contentY + 2, 0), item.name, RCM.Theme.Text)
+                        RCM.Label(vector.create(nameX, contentY + 2, 0), displayName, RCM.Theme.Text)
                         local barX = x + 150
                         RCM.Rect(vector.create(barX, contentY + 6, 0), vector.create(100, 4, 0), RCM.Theme.Section, 1)
                         local fillW = ((item.value - item.min) / (item.max - item.min)) * 100
@@ -232,9 +231,13 @@ function Library:Window(props)
                     elseif item.type == "dropdown" then
                         if itemClick then item.open = not item.open end
                         local icon = item.open and "[-]" or "[+]"
-                        RCM.Label(vector.create(nameX, contentY + 2, 0), item.name .. ": " .. item.selected, RCM.Theme.Text)
+                        
+                        -- Update display name so Tooltip moves to the right
+                        displayName = item.name .. ": " .. item.selected
+                        
+                        RCM.Label(vector.create(nameX, contentY + 2, 0), displayName, RCM.Theme.Text)
                         RCM.Label(vector.create(x + 250, contentY + 2, 0), icon, RCM.Theme.Section, true)
-                        -- Dropdown expansion logic handled in height calc, just draw items
+                        
                         if item.open then
                             local dropY = contentY + 18
                             for _, opt in ipairs(item.options) do
@@ -256,15 +259,15 @@ function Library:Window(props)
                         end
                     end
 
-                    -- [ FEATURE ] Tooltip Logic
+                    -- [ RENDER ] Tooltip
                     if item.tooltip then
+                        -- Calculate width based on what was actually drawn (displayName)
+                        local nameWidth = (7 * #displayName)
                         local iconX = nameX + nameWidth + 8
                         local iconPos = vector.create(iconX, contentY + 2, 0)
                         
-                        -- Draw (?) icon
                         RCM.Label(iconPos, "(?)", RCM.Theme.Section)
                         
-                        -- Check Hover
                         if RCM:IsMouseOver(iconPos, vector.create(15, 13, 0)) then
                             RCM.State.ActiveTooltip = item.tooltip
                         end
@@ -281,13 +284,10 @@ function Library:Window(props)
         local page = { name = props.Name or "Page", sections = {} }
         function page:Section(props)
             local section = { name = props.Name or "Section", items = {} }
-            
-            -- Updated props to accept Tooltip
             function section:Toggle(p) table.insert(section.items, {type="toggle", name=p.Name, value=p.Default or false, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
             function section:Slider(p) table.insert(section.items, {type="slider", name=p.Name, value=p.Default or p.Min, min=p.Min, max=p.Max, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
             function section:Button(p) table.insert(section.items, {type="button", name=p.Name, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
             function section:Dropdown(p) table.insert(section.items, {type="dropdown", name=p.Name, options=p.Options, selected=p.Default or p.Options[1], open=false, callback=p.Callback or function()end, tooltip=p.Tooltip}) end
-            
             table.insert(page.sections, section)
             return section
         end
@@ -302,25 +302,20 @@ function RCM:Init()
     local renderEvent = RunService.Render or game:GetService("RunService").RenderStepped
     renderEvent:Connect(function()
         self:UpdateInput()
-        
-        -- Reset Tooltip State per frame
         self.State.ActiveTooltip = nil
         
-        -- Draw All Windows
         for _, win in ipairs(self.Windows) do
             win:Draw()
         end
         
-        -- Draw Active Tooltip (Last = On Top)
         if self.State.ActiveTooltip then
             local tipText = self.State.ActiveTooltip
             local mPos = self.State.MousePos
             local textW = (7 * #tipText) + 10
             local tipPos = vector.create(mPos.x + 12, mPos.y + 12, 0)
-            local tipSize = vector.create(textW, 20, 0)
             
-            RCM.Rect(tipPos, tipSize, RCM.Theme.Border, 1) -- Outline
-            RCM.Rect(vector.create(tipPos.x + 1, tipPos.y + 1, 0), vector.create(textW - 2, 18, 0), RCM.Theme.TooltipBg, 1) -- Bg
+            RCM.Rect(tipPos, vector.create(textW, 20, 0), RCM.Theme.Border, 1)
+            RCM.Rect(vector.create(tipPos.x + 1, tipPos.y + 1, 0), vector.create(textW - 2, 18, 0), RCM.Theme.TooltipBg, 1)
             RCM.Label(vector.create(tipPos.x + 5, tipPos.y + 3, 0), tipText, RCM.Theme.Text)
         end
     end)
