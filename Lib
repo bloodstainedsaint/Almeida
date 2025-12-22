@@ -1,5 +1,6 @@
 --!optimization 2
--- [ RCM ] Render Control Module + Severe UI Library (Fixed Tooltips)
+-- [ RCM ] Render Control Module + Severe UI Library
+-- Features: String Keys Only ("Delete", "F1"), Tooltips, Tab Wrapping, Mouse Interaction
 
 local RCM = {}
 local Library = {}
@@ -21,7 +22,7 @@ RCM.State = {
     MousePos = vector.create(0, 0, 0),
     MouseDown = false,
     MouseHeld = false,
-    ToggleKey = 0x2E,
+    ToggleKey = "Delete", -- Default is now a String
     LastToggle = 0,
     ActiveTooltip = nil
 }
@@ -36,9 +37,11 @@ function RCM.Label(pos, text, color, center)
 end
 
 function RCM:UpdateInput()
+    -- Mouse Position
     local s, mPos = pcall(getmouseposition)
     if s and mPos then self.State.MousePos = mPos end
 
+    -- Mouse Click
     local currentDown = isleftpressed()
     if currentDown and not self.State.MouseDown then
         self.State.MouseDown = true
@@ -49,11 +52,17 @@ function RCM:UpdateInput()
         self.State.MouseHeld = false
     end
 
+    -- Toggle Key Check (String Comparison)
     local keys = getpressedkeys()
     local isTogglePressed = false
+    
     if keys then
-        for _, k in ipairs(keys) do
-            if k == self.State.ToggleKey then isTogglePressed = true break end
+        for _, keyName in ipairs(keys) do
+            -- Directly compare the string name (e.g. "Delete" == "Delete")
+            if keyName == self.State.ToggleKey then 
+                isTogglePressed = true 
+                break 
+            end
         end
     end
 
@@ -71,6 +80,11 @@ end
 
 -- [ 3 ] Library Core
 function Library:Window(props)
+    -- Simply assign the string directly
+    if props.ToggleKey then
+        RCM.State.ToggleKey = props.ToggleKey
+    end
+
     local window = {
         name = props.Name or "Severe UI",
         pos = props.Position or vector.create(100, 100, 0),
@@ -103,7 +117,7 @@ function Library:Window(props)
             end
         end
 
-        -- Header Calc
+        -- Header Calc (Tab Wrapping)
         local tabXCursor = 10
         local tabYOffset = 25
         local tabRowHeight = 18
@@ -193,7 +207,6 @@ function Library:Window(props)
 
                     if hovered then RCM.Rect(itemPos, itemSize, RCM.Theme.Hover, 0.5) end
 
-                    -- [ FIX ] Calculate display name dynamically for Tooltip placement
                     local displayName = item.name
                     local nameX = x + 20
                     
@@ -231,10 +244,7 @@ function Library:Window(props)
                     elseif item.type == "dropdown" then
                         if itemClick then item.open = not item.open end
                         local icon = item.open and "[-]" or "[+]"
-                        
-                        -- Update display name so Tooltip moves to the right
                         displayName = item.name .. ": " .. item.selected
-                        
                         RCM.Label(vector.create(nameX, contentY + 2, 0), displayName, RCM.Theme.Text)
                         RCM.Label(vector.create(x + 250, contentY + 2, 0), icon, RCM.Theme.Section, true)
                         
@@ -259,15 +269,12 @@ function Library:Window(props)
                         end
                     end
 
-                    -- [ RENDER ] Tooltip
+                    -- Tooltip
                     if item.tooltip then
-                        -- Calculate width based on what was actually drawn (displayName)
                         local nameWidth = (7 * #displayName)
                         local iconX = nameX + nameWidth + 8
                         local iconPos = vector.create(iconX, contentY + 2, 0)
-                        
                         RCM.Label(iconPos, "(?)", RCM.Theme.Section)
-                        
                         if RCM:IsMouseOver(iconPos, vector.create(15, 13, 0)) then
                             RCM.State.ActiveTooltip = item.tooltip
                         end
@@ -303,17 +310,14 @@ function RCM:Init()
     renderEvent:Connect(function()
         self:UpdateInput()
         self.State.ActiveTooltip = nil
-        
         for _, win in ipairs(self.Windows) do
             win:Draw()
         end
-        
         if self.State.ActiveTooltip then
             local tipText = self.State.ActiveTooltip
             local mPos = self.State.MousePos
             local textW = (7 * #tipText) + 10
             local tipPos = vector.create(mPos.x + 12, mPos.y + 12, 0)
-            
             RCM.Rect(tipPos, vector.create(textW, 20, 0), RCM.Theme.Border, 1)
             RCM.Rect(vector.create(tipPos.x + 1, tipPos.y + 1, 0), vector.create(textW - 2, 18, 0), RCM.Theme.TooltipBg, 1)
             RCM.Label(vector.create(tipPos.x + 5, tipPos.y + 3, 0), tipText, RCM.Theme.Text)
