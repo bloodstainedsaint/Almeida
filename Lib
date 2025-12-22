@@ -1,6 +1,6 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v4.7
--- Reverted: Back to "..." Truncation method (Cleaner look, no clipping)
+-- [ RCM ] Severe UI Library v5.0
+-- Features: Context Menus (Right Click), Keybind Modes (Hold/Toggle/Always), Z-Layering
 
 local RCM = {}
 local Library = {}
@@ -17,7 +17,7 @@ RCM.Theme = {
     TooltipBg  = Color3.new(0.05, 0.05, 0.05)
 }
 
-RCM.Layer = { Base = 0, Section = 1, Item = 2, Text = 3, Popup = 5, Tooltip = 10 }
+RCM.Layer = { Base = 0, Section = 1, Item = 2, Text = 3, Popup = 20, Tooltip = 30 }
 
 local WIN_W = 550
 local COL_W = 260
@@ -29,9 +29,12 @@ RCM.State = {
     MousePos = vector.create(0, 0, 0),
     MouseDown = false,
     MouseHeld = false,
+    RightMouseDown = false, -- [ NEW ] Track Right Click
+    RightMouseHeld = false,
     ToggleKey = "Delete",
     LastToggle = 0,
     ActiveTooltip = nil,
+    ActivePopup = nil, -- [ NEW ] Stores context menu data
     ScreenSize = vector.create(1920, 1080, 0),
     Watermark = { Visible = true, Text = "Severe UI", Extra = true, Pos = vector.create(50, 50, 0), Dragging = false, Offset = vector.create(0,0,0) },
     KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) },
@@ -49,7 +52,6 @@ function RCM.Label(pos, text, color, center)
     DrawingImmediate.Text(pos, 13, color, 1, text, center or false, "Proggy")
 end
 
--- [ TRUNCATION ] Fits text to width, adds ".."
 local function FitText(text, maxWidth)
     local charWidth = 7 
     if (#text * charWidth) > maxWidth then
@@ -64,16 +66,31 @@ function RCM:UpdateInput()
     if s and mPos then self.State.MousePos = mPos end
     if workspace.CurrentCamera then self.State.ScreenSize = workspace.CurrentCamera.ViewportSize end
 
-    local currentDown = isleftpressed()
-    if currentDown and not self.State.MouseDown then
-        self.State.MouseDown = true
-    elseif currentDown and self.State.MouseDown then
-        self.State.MouseHeld = true
-    elseif not currentDown then
+    -- Left Click
+    local lDown = isleftpressed()
+    if lDown and not self.State.MouseDown then self.State.MouseDown = true
+    elseif lDown and self.State.MouseDown then self.State.MouseHeld = true
+    elseif not lDown then
         self.State.MouseDown = false
         self.State.MouseHeld = false
         self.State.Watermark.Dragging = false
         self.State.KeybindList.Dragging = false
+    end
+
+    -- [ NEW ] Right Click
+    local rDown = isrightpressed()
+    if rDown and not self.State.RightMouseDown then self.State.RightMouseDown = true
+    elseif rDown and self.State.RightMouseDown then self.State.RightMouseHeld = true
+    elseif not rDown then
+        self.State.RightMouseDown = false
+        self.State.RightMouseHeld = false
+    end
+
+    -- Close Popup on Click Outside
+    if self.State.MouseDown and self.State.ActivePopup then
+        -- Simple check: if clicking anywhere, close popup (unless clicking inside it, handled in draw)
+        -- We handle specific popup clicks in DrawPopup, so here we just assume close if not caught
+        -- self.State.ActivePopup = nil -- (Done inside DrawPopup for precision)
     end
 
     local keys = getpressedkeys()
@@ -105,17 +122,30 @@ function RCM:UpdateBinders()
     for _, bind in ipairs(RCM.Binders) do
         if bind.listening then
             for _, k in ipairs(keys) do
-                if k ~= "Unknown" and k ~= "LeftMouse" then
+                if k ~= "Unknown" and k ~= "LeftMouse" and k ~= "RightMouse" then
                     bind.key = k; bind.listening = false;
-                    if bind.callback then bind.callback(k) end
+                    if bind.callback then bind.callback(bind.key) end
                 end
             end
         else
-            local isActive = keyMap[bind.key] == true
-            if bind.active ~= isActive then
-                bind.active = isActive
-                if bind.type == "binder" and bind.callback then bind.callback(isActive) end
+            -- [ NEW ] Logic based on Mode
+            local isKeyDown = keyMap[bind.key] == true
+            
+            if bind.mode == "Always" then
+                bind.active = true
+            elseif bind.mode == "Hold" then
+                bind.active = isKeyDown
+            elseif bind.mode == "Toggle" then
+                if isKeyDown and not bind.lastState then -- Rising edge
+                    bind.active = not bind.active
+                end
             end
+            
+            bind.lastState = isKeyDown -- Track previous frame state
+            
+            -- Note: For "Toggle", we don't spam the callback, usually checked in script loop
+            -- But we can fire it if state changed
+            -- (User logic typically checks .active boolean directly)
         end
     end
 end
@@ -160,9 +190,14 @@ end
 
 function RCM:DrawKeybindList()
     if not self.State.KeybindList.Visible then return end
-    
     local itemsToShow = {}
     for _, bind in ipairs(RCM.Binders) do
+        -- Logic: If mode is Always, show. If mode is Active, show only if active.
+        -- BUT: "Always" bind mode implies it's always on. "Hold" implies active when held.
+        -- Keybind HUD Logic:
+        -- Mode "Always": Show all binds regardless of state.
+        -- Mode "Active": Show only binds where .active is true.
+        
         if self.State.KeybindList.Mode == "Always" then table.insert(itemsToShow, bind)
         elseif self.State.KeybindList.Mode == "Active" and bind.active then table.insert(itemsToShow, bind) end
     end
@@ -172,7 +207,7 @@ function RCM:DrawKeybindList()
     for _, b in ipairs(itemsToShow) do
         local nameW = (7 * #b.name)
         local keyW = (7 * (#b.key + 2)) 
-        local totalW = nameW + keyW + 30
+        local totalW = nameW + keyW + 40 -- Extra padding for Mode text
         if totalW > maxWidth then maxWidth = totalW end
     end
 
@@ -201,13 +236,60 @@ function RCM:DrawKeybindList()
     for _, bind in ipairs(itemsToShow) do
         local col = bind.active and self.Theme.Accent or self.Theme.TextDim
         local keyTxt = "[" .. bind.key .. "]"
+        local modeTxt = (bind.mode == "Hold" and "[H]") or (bind.mode == "Toggle" and "[T]") or "[A]"
         
-        -- Truncate name if list gets too small (unlikely with dynamic width, but safe)
-        local displayName = FitText(bind.name, maxWidth - (7 * #keyTxt) - 20)
-        
-        RCM.Label(vector.create(pos.x + 5, cy, RCM.Layer.Text), displayName, self.Theme.Text)
-        RCM.Label(vector.create(pos.x + maxWidth - (7 * #keyTxt) - 5, cy, RCM.Layer.Text), keyTxt, col)
+        RCM.Label(vector.create(pos.x + 5, cy, RCM.Layer.Text), bind.name, self.Theme.Text)
+        -- Draw Key + Mode
+        local fullRight = keyTxt .. " " .. modeTxt
+        RCM.Label(vector.create(pos.x + maxWidth - (7 * #fullRight) - 5, cy, RCM.Layer.Text), fullRight, col)
         cy = cy + 18
+    end
+end
+
+-- [ NEW ] Draw Popup Context Menu
+function RCM:DrawPopup()
+    if not self.State.ActivePopup then return end
+    
+    local popup = self.State.ActivePopup
+    local bind = popup.BindItem
+    local pos = popup.Pos
+    local options = {"Hold", "Toggle", "Always"}
+    local width = 80
+    local height = (#options * 20) + 4
+    local size = vector.create(width, height, 0)
+    
+    -- Close if clicked outside
+    if self.State.MouseDown and not self.State.MouseHeld then
+        if not self:IsMouseOver(pos, size) then
+            self.State.ActivePopup = nil
+            return
+        end
+    end
+    
+    -- Draw Background
+    RCM.Rect(vector.create(pos.x, pos.y, RCM.Layer.Popup), size, self.Theme.Border, 1)
+    RCM.Rect(vector.create(pos.x + 1, pos.y + 1, RCM.Layer.Popup), vector.create(width - 2, height - 2, 0), self.Theme.Background, 1)
+    
+    local cy = pos.y + 2
+    for _, mode in ipairs(options) do
+        local optPos = vector.create(pos.x + 2, cy, RCM.Layer.Popup)
+        local optSize = vector.create(width - 4, 18, 0)
+        local hovered = self:IsMouseOver(optPos, optSize)
+        
+        if hovered then
+            RCM.Rect(optPos, optSize, self.Theme.Accent, 0.8)
+            if self.State.MouseDown and not self.State.MouseHeld then
+                bind.mode = mode
+                self.State.ActivePopup = nil -- Close after select
+                return
+            end
+        end
+        
+        local txtCol = (bind.mode == mode) and self.Theme.Accent or self.Theme.Text
+        if hovered then txtCol = self.Theme.Text end -- White if highlighted
+        
+        RCM.Label(vector.create(pos.x + 5, cy + 2, RCM.Layer.Popup + 1), mode, txtCol)
+        cy = cy + 20
     end
 end
 
@@ -231,6 +313,7 @@ function Library:Window(props)
 
         local x, y = self.pos.x, self.pos.y
         local click = RCM.State.MouseDown and not RCM.State.MouseHeld
+        local rClick = RCM.State.RightMouseDown and not RCM.State.RightMouseHeld
 
         if click and RCM:IsMouseOver(self.pos, vector.create(WIN_W, 30, 0)) then
             self.dragging = true
@@ -249,11 +332,15 @@ function Library:Window(props)
             for _, section in ipairs(page.sections) do
                 local h = 25
                 for _, item in ipairs(section.items) do
-                    h = h + 24
+                    local limit = 26
+                    if item.type == "slider" then limit = 15 end
+                    if item.type == "binder" then limit = 24 end
+                    local lines = FitText(item.name, 220) -- Use simple fit for height calc to avoid complex logic here
+                    -- Actually using wrapping
+                    if item.name:len() > limit then h = h + 24 else h = h + 24 end -- Simplified for now, wrapping adds dynamic height
                     if item.type == "dropdown" and item.open then h = h + (#item.options * 20)
                     elseif item.type == "colorpicker" and item.open then h = h + 70 end
                 end
-                
                 if section.side == "Left" then section.renderY = leftY; leftY = leftY + h + 10
                 else section.renderY = rightY; rightY = rightY + h + 10 end
             end
@@ -287,7 +374,12 @@ function Library:Window(props)
                 
                 local sh = 25
                 for _, item in ipairs(section.items) do
-                    sh = sh + 24
+                    local limit = 26
+                    if item.type == "slider" then limit = 15 end
+                    if item.type == "binder" then limit = 24 end
+                    local lines = {FitText(item.name, 220)} -- Simplified wrapper
+                    local itemH = 24
+                    sh = sh + itemH
                     if item.type == "dropdown" and item.open then sh = sh + (#item.options * 20)
                     elseif item.type == "colorpicker" and item.open then sh = sh + 70 end
                 end
@@ -299,23 +391,24 @@ function Library:Window(props)
                 
                 local cy = sy + 25
                 for _, item in ipairs(section.items) do
-                    local iH = 24
-                    local itemPos = vector.create(sx + 5, cy, 0)
-                    local hover = RCM:IsMouseOver(itemPos, vector.create(250, 20, 0))
-                    local iClick = hover and click
-                    if hover then RCM.Rect(vector.create(itemPos.x, itemPos.y, RCM.Layer.Item), vector.create(250, 20, 0), RCM.Theme.Hover, 0.5) end
-                    
                     local nameX = sx + 10
                     local valX  = sx + COL_W - 15
                     local zItem = RCM.Layer.Text
                     
-                    -- [ FIX ] Strict Limits for Truncation
-                    local limit = 220 -- Default pixels
+                    local limit = 220 
                     if item.type == "slider" then limit = 110 end
                     if item.type == "binder" then limit = 160 end
                     if item.type == "dropdown" then limit = 130 end
                     
                     local displayName = FitText(item.name, limit)
+                    local iH = 24
+                    
+                    local itemPos = vector.create(sx + 5, cy, 0)
+                    local hover = RCM:IsMouseOver(itemPos, vector.create(COL_W - 10, iH - 4, 0))
+                    local iClick = hover and click
+                    local iRClick = hover and rClick
+                    
+                    if hover then RCM.Rect(vector.create(itemPos.x, itemPos.y, RCM.Layer.Item), vector.create(COL_W - 10, iH - 4, 0), RCM.Theme.Hover, 0.5) end
                     
                     if item.type == "toggle" then
                         if iClick then item.value = not item.value; item.callback(item.value) end
@@ -344,7 +437,7 @@ function Library:Window(props)
                         RCM.Label(vector.create(nameX, cy + 3, zItem), displayName, RCM.Theme.Text)
                         RCM.Label(vector.create(valX - (7*#item.selected), cy + 3, zItem), item.selected, RCM.Theme.Accent)
                         if item.open then
-                            local dy = cy + 24
+                            local dy = cy + iH
                             for _, opt in ipairs(item.options) do
                                 local oPos = vector.create(sx + 15, dy, 0)
                                 if RCM:IsMouseOver(oPos, vector.create(230, 18, 0)) then
@@ -357,10 +450,16 @@ function Library:Window(props)
                             iH = iH + (#item.options * 20)
                         end
 
+                    -- [ NEW ] Binder with Right Click
                     elseif item.type == "binder" then
                         if iClick then item.listening = not item.listening end
+                        
+                        -- Right Click Trigger
+                        if iRClick then
+                            RCM.State.ActivePopup = { BindItem = item, Pos = RCM.State.MousePos }
+                        end
+                        
                         local txt = "[" .. (item.listening and "..." or item.key) .. "]"
-                        -- Recalc limit based on Key length
                         local keyW = (7 * #txt)
                         displayName = FitText(item.name, 230 - keyW) 
                         
@@ -372,7 +471,7 @@ function Library:Window(props)
                         RCM.Label(vector.create(nameX, cy + 3, zItem), displayName, RCM.Theme.Text)
                         RCM.Rect(vector.create(valX - 15, cy + 5, zItem), vector.create(20, 10, 0), item.color, 1)
                         if item.open then
-                            local py = cy + 24
+                            local py = cy + iH
                             local function slider(c, v, m)
                                 if RCM:IsMouseOver(vector.create(sx+15, py, 0), vector.create(COL_W-30, 15, 0)) and isleftpressed() then
                                     local p = math.clamp((RCM.State.MousePos.x - (sx+40)) / 150, 0, 1)
@@ -416,7 +515,8 @@ function Library:Window(props)
             function section:Button(p) table.insert(section.items, {type="button", name=p.Name, callback=p.Callback, tooltip=p.Tooltip}) end
             function section:Dropdown(p) table.insert(section.items, {type="dropdown", name=p.Name, options=p.Options, selected=p.Default, open=false, callback=p.Callback, tooltip=p.Tooltip}) end
             function section:Binder(p) 
-                local b = {type="binder", name=p.Name, key=p.Default or "None", active=false, listening=false, callback=p.Callback, tooltip=p.Tooltip}
+                -- [ NEW ] Default mode = "Hold"
+                local b = {type="binder", name=p.Name, key=p.Default or "None", mode="Hold", active=false, listening=false, callback=p.Callback, tooltip=p.Tooltip}
                 table.insert(section.items, b); table.insert(RCM.Binders, b)
             end
             function section:ColorPicker(p) table.insert(section.items, {type="colorpicker", name=p.Name, color=p.Default or Color3.new(1,1,1), open=false, callback=p.Callback, tooltip=p.Tooltip}) end
@@ -438,7 +538,7 @@ function Library:SaveConfig(name)
                     if item.type == "toggle" then data[item.name] = item.value
                     elseif item.type == "slider" then data[item.name] = item.value
                     elseif item.type == "dropdown" then data[item.name] = item.selected
-                    elseif item.type == "binder" then data[item.name] = item.key
+                    elseif item.type == "binder" then data[item.name] = {k=item.key, m=item.mode} -- Save Mode
                     elseif item.type == "colorpicker" then data[item.name] = {R=item.color.R, G=item.color.G, B=item.color.B} end
                 end
             end
@@ -458,7 +558,10 @@ function Library:LoadConfig(name)
                         if item.type == "toggle" then item.value = data[item.name]; if item.callback then item.callback(item.value) end
                         elseif item.type == "slider" then item.value = data[item.name]; if item.callback then item.callback(item.value) end
                         elseif item.type == "dropdown" then item.selected = data[item.name]; if item.callback then item.callback(item.selected) end
-                        elseif item.type == "binder" then item.key = data[item.name]; if item.callback then item.callback(item.key) end
+                        elseif item.type == "binder" then 
+                            local d = data[item.name]
+                            if type(d) == "table" then item.key = d.k; item.mode = d.m else item.key = d end -- Support old config format
+                            if item.callback then item.callback(item.key) end
                         elseif item.type == "colorpicker" then 
                             local c = data[item.name]; item.color = Color3.new(c.R, c.G, c.B); if item.callback then item.callback(item.color) end 
                         end
@@ -489,7 +592,11 @@ function RCM:Init()
         self:DrawWatermark()
         self:DrawKeybindList()
         for _, win in ipairs(self.Windows) do win:Draw() end
-        if self.State.ActiveTooltip then
+        
+        -- [ NEW ] Draw Popup
+        self:DrawPopup()
+        
+        if self.State.ActiveTooltip and not self.State.ActivePopup then
             local t = self.State.ActiveTooltip
             local mp = self.State.MousePos
             local w = (8*#t)+12
