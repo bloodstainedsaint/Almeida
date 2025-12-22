@@ -1,6 +1,6 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v4.4
--- Fixed: Text Clipping (Names now auto-truncate if they hit values/binds)
+-- [ RCM ] Severe UI Library v4.5
+-- Fixed: Replaced Truncation with Text Wrapping, Dynamic Item Heights
 
 local RCM = {}
 local Library = {}
@@ -49,18 +49,21 @@ function RCM.Label(pos, text, color, center)
     DrawingImmediate.Text(pos, 13, color, 1, text, center or false, "Proggy")
 end
 
--- [ NEW ] Text Truncator
--- Ensures 'text' fits within 'maxWidth' (pixels), adds ".." if clipped
-local function FitText(text, maxWidth)
-    local charWidth = 7 -- Proggy is approx 7px wide
-    local estimatedWidth = #text * charWidth
-    
-    if estimatedWidth > maxWidth then
-        local maxChars = math.floor(maxWidth / charWidth) - 2
-        if maxChars < 1 then return ".." end
-        return string.sub(text, 1, maxChars) .. ".."
+-- [ NEW ] Word Wrapper
+local function WrapText(str, maxChars)
+    local lines = {}
+    local currentLine = ""
+    for word in str:gmatch("%S+") do
+        if #currentLine + #word + 1 > maxChars then
+            table.insert(lines, currentLine)
+            currentLine = word
+        else
+            if currentLine == "" then currentLine = word else currentLine = currentLine .. " " .. word end
+        end
     end
-    return text
+    if currentLine ~= "" then table.insert(lines, currentLine) end
+    if #lines == 0 then lines = {str} end -- fallback for empty or single word
+    return lines
 end
 
 function RCM:UpdateInput()
@@ -243,14 +246,20 @@ function Library:Window(props)
         local page = self.pages[self.activePage]
         local leftY, rightY = 55, 55
         
+        -- PRE-CALCULATE HEIGHT (Includes Text Wrapping)
         if page then
             for _, section in ipairs(page.sections) do
                 local h = 25
                 for _, item in ipairs(section.items) do
-                    h = h + 24
+                    -- [ HEIGHT CALC ] Wrap Logic
+                    local lines = WrapText(item.name, 22) -- 22 chars max for text
+                    local itemH = 24 + ((#lines - 1) * 14)
+                    
+                    h = h + itemH
                     if item.type == "dropdown" and item.open then h = h + (#item.options * 20)
                     elseif item.type == "colorpicker" and item.open then h = h + 70 end
                 end
+                
                 if section.side == "Left" then section.renderY = leftY; leftY = leftY + h + 10
                 else section.renderY = rightY; rightY = rightY + h + 10 end
             end
@@ -282,9 +291,12 @@ function Library:Window(props)
                 local sx = (section.side == "Left") and (x + 12) or (x + 12 + 260 + 10)
                 local sy = y + section.renderY
                 
+                -- Recalc Section Height for Box
                 local sh = 25
                 for _, item in ipairs(section.items) do
-                    sh = sh + 24
+                    local lines = WrapText(item.name, 22)
+                    local itemH = 24 + ((#lines - 1) * 14)
+                    sh = sh + itemH
                     if item.type == "dropdown" and item.open then sh = sh + (#item.options * 20)
                     elseif item.type == "colorpicker" and item.open then sh = sh + 70 end
                 end
@@ -296,26 +308,35 @@ function Library:Window(props)
                 
                 local cy = sy + 25
                 for _, item in ipairs(section.items) do
-                    local iH = 24
-                    local itemPos = vector.create(sx + 5, cy, 0)
-                    local hover = RCM:IsMouseOver(itemPos, vector.create(250, 20, 0))
-                    local iClick = hover and click
-                    if hover then RCM.Rect(vector.create(itemPos.x, itemPos.y, RCM.Layer.Item), vector.create(250, 20, 0), RCM.Theme.Hover, 0.5) end
-                    
                     local nameX = sx + 10
                     local valX  = sx + COL_W - 15
                     local zItem = RCM.Layer.Text
                     
+                    -- [ NEW ] Wrapping Logic
+                    local lines = WrapText(item.name, 22) -- 22 chars approx 150px
+                    local lineCount = #lines
+                    local iH = 24 + ((lineCount - 1) * 14) -- Grow height
+                    
+                    local itemPos = vector.create(sx + 5, cy, 0)
+                    local hover = RCM:IsMouseOver(itemPos, vector.create(COL_W - 10, iH - 4, 0))
+                    local iClick = hover and click
+                    if hover then RCM.Rect(vector.create(itemPos.x, itemPos.y, RCM.Layer.Item), vector.create(COL_W - 10, iH - 4, 0), RCM.Theme.Hover, 0.5) end
+                    
+                    -- Draw Lines
+                    for i, line in ipairs(lines) do
+                        RCM.Label(vector.create(nameX, cy + 3 + ((i-1)*14), zItem), line, RCM.Theme.Text)
+                    end
+                    
+                    -- Controls (Top Aligned at cy)
                     if item.type == "toggle" then
                         if iClick then item.value = not item.value; item.callback(item.value) end
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), FitText(item.name, 200), RCM.Theme.Text) -- FitText
                         local boxCol = item.value and RCM.Theme.Accent or RCM.Theme.Section
                         RCM.Rect(vector.create(valX - 10, cy + 5, zItem), vector.create(10, 10, 0), RCM.Theme.Border, 1)
                         RCM.Rect(vector.create(valX - 9, cy + 6, zItem), vector.create(8, 8, 0), boxCol, 1)
 
                     elseif item.type == "button" then
                         if iClick then item.callback() end
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), FitText(item.name, 220), hover and RCM.Theme.Accent or RCM.Theme.Text)
+                        -- Button just uses the text, hover handles feedback
 
                     elseif item.type == "slider" then
                         if hover and isleftpressed() then
@@ -323,22 +344,19 @@ function Library:Window(props)
                             local nv = math.floor(item.min + (item.max - item.min) * pct)
                             if nv ~= item.value then item.value = nv; item.callback(nv) end
                         end
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), FitText(item.name, 120), RCM.Theme.Text)
                         RCM.Label(vector.create(valX - 120, cy + 3, zItem), tostring(item.value), RCM.Theme.Text)
                         RCM.Rect(vector.create(valX - 100, cy + 8, zItem), vector.create(100, 4, 0), RCM.Theme.Background, 1)
                         RCM.Rect(vector.create(valX - 100, cy + 8, zItem), vector.create(((item.value - item.min)/(item.max - item.min))*100, 4, 0), RCM.Theme.Accent, 1)
 
                     elseif item.type == "dropdown" then
                         if iClick then item.open = not item.open end
-                        local display = FitText(item.name, 150)
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), display, RCM.Theme.Text)
                         RCM.Label(vector.create(valX - (7*#item.selected), cy + 3, zItem), item.selected, RCM.Theme.Accent)
                         if item.open then
-                            local dy = cy + 24
+                            local dy = cy + iH
                             for _, opt in ipairs(item.options) do
                                 local oPos = vector.create(sx + 15, dy, 0)
-                                if RCM:IsMouseOver(oPos, vector.create(230, 18, 0)) then
-                                    RCM.Rect(vector.create(oPos.x, oPos.y, RCM.Layer.Popup), vector.create(230, 18, 0), RCM.Theme.Hover, 0.5)
+                                if RCM:IsMouseOver(oPos, vector.create(COL_W - 30, 18, 0)) then
+                                    RCM.Rect(vector.create(oPos.x, oPos.y, RCM.Layer.Popup), vector.create(COL_W - 30, 18, 0), RCM.Theme.Hover, 0.5)
                                     if click then item.selected = opt; item.open = false; item.callback(opt) end
                                 end
                                 RCM.Label(vector.create(sx + 20, dy + 2, RCM.Layer.Popup), opt, (item.selected == opt) and RCM.Theme.Accent or RCM.Theme.Text)
@@ -347,27 +365,16 @@ function Library:Window(props)
                             iH = iH + (#item.options * 20)
                         end
 
-                    -- [ FIX ] Binder: Calculate Truncation based on Key Text Width
                     elseif item.type == "binder" then
                         if iClick then item.listening = not item.listening end
                         local txt = "[" .. (item.listening and "..." or item.key) .. "]"
-                        
-                        -- Calculate how much space the KEY takes
-                        local keyWidth = (7 * #txt)
-                        -- Calculate remaining space for NAME (260 - padding - keywidth)
-                        local availWidth = 230 - keyWidth 
-                        
-                        local displayName = FitText(item.name, availWidth)
-                        
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), displayName, RCM.Theme.Text)
                         RCM.Label(vector.create(valX - (7*#txt), cy + 3, zItem), txt, item.listening and RCM.Theme.Accent or RCM.Theme.TextDim)
 
                     elseif item.type == "colorpicker" then
                         if iClick then item.open = not item.open end
-                        RCM.Label(vector.create(nameX, cy + 3, zItem), FitText(item.name, 180), RCM.Theme.Text)
                         RCM.Rect(vector.create(valX - 15, cy + 5, zItem), vector.create(20, 10, 0), item.color, 1)
                         if item.open then
-                            local py = cy + 24
+                            local py = cy + iH
                             local function slider(c, v, m)
                                 if RCM:IsMouseOver(vector.create(sx+15, py, 0), vector.create(COL_W-30, 15, 0)) and isleftpressed() then
                                     local p = math.clamp((RCM.State.MousePos.x - (sx+40)) / 150, 0, 1)
@@ -389,12 +396,14 @@ function Library:Window(props)
                     end
 
                     if item.tooltip then
-                        -- [ FIX ] Tooltip Position relies on the *truncated* name width
-                        -- We re-calculate FitText width roughly here
-                        local usedName = FitText(item.name, 200) -- Approx
-                        local nameW = (7 * #usedName)
+                        -- [ FIX ] Tooltip at end of last line
+                        local lastLine = lines[#lines]
+                        local nameW = (7 * #lastLine)
                         local tipX = nameX + nameW + 8
-                        local tipPos = vector.create(tipX, cy + 3, zItem)
+                        -- Y pos depends on how many lines we wrapped
+                        local tipY = cy + 3 + ((#lines-1)*14)
+                        
+                        local tipPos = vector.create(tipX, tipY, zItem)
                         RCM.Label(tipPos, "(?)", RCM.Theme.Section)
                         if RCM:IsMouseOver(tipPos, vector.create(15, 13, 0)) then RCM.State.ActiveTooltip = item.tooltip end
                     end
@@ -487,7 +496,6 @@ function RCM:Init()
         self:DrawWatermark()
         self:DrawKeybindList()
         for _, win in ipairs(self.Windows) do win:Draw() end
-        
         if self.State.ActiveTooltip then
             local t = self.State.ActiveTooltip
             local mp = self.State.MousePos
