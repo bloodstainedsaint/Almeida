@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v2.0
--- Features: Binders, Color Pickers, Config System, Draggable HUD (Watermark/KeyStrokes)
+-- [ RCM ] Severe UI Library v2.1
+-- Fixed: "Connect" error (Auto-detects lowercase/uppercase signal methods)
 
 local RCM = {}
 local Library = {}
 
--- [ 1 ] Configuration & Theme
+-- [ 1 ] Configuration
 RCM.Theme = {
     Background = Color3.new(0.104, 0.104, 0.104),
     Border     = Color3.new(0.023, 0.023, 0.023),
@@ -26,8 +26,6 @@ RCM.State = {
     LastToggle = 0,
     ActiveTooltip = nil,
     ScreenSize = vector.create(1920, 1080, 0),
-    
-    -- HUD States
     Watermark = { Visible = true, Pos = vector.create(50, 50, 0), Dragging = false, Offset = vector.create(0,0,0) },
     KeyStrokes = { Visible = true, Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) }
 }
@@ -44,7 +42,6 @@ end
 function RCM:UpdateInput()
     local s, mPos = pcall(getmouseposition)
     if s and mPos then self.State.MousePos = mPos end
-    
     if workspace.CurrentCamera then self.State.ScreenSize = workspace.CurrentCamera.ViewportSize end
 
     local currentDown = isleftpressed()
@@ -55,7 +52,6 @@ function RCM:UpdateInput()
     elseif not currentDown then
         self.State.MouseDown = false
         self.State.MouseHeld = false
-        -- Reset Drag States
         self.State.Watermark.Dragging = false
         self.State.KeyStrokes.Dragging = false
     end
@@ -80,18 +76,15 @@ function RCM:IsMouseOver(pos, size)
        and m.y >= pos.y and m.y <= pos.y + size.y
 end
 
--- [ 3 ] Global HUD Components
+-- [ 3 ] Global HUD
 function RCM:DrawWatermark()
     if not self.State.Watermark.Visible then return end
-    
     local pos = self.State.Watermark.Pos
-    -- Calculate Text: FPS logic is approximated for immediate mode
-    local fps = math.floor(1 / game:GetService("RunService").RenderStepped:Wait()) -- Simple calc
+    local fps = 60; if workspace:FindFirstChild("DistributedGameTime") then fps = math.floor(1/game:GetService("RunService").RenderStepped:Wait()) end
     local text = string.format("Severe UI | FPS: %d", fps)
     local width = (7 * #text) + 20
     local size = vector.create(width, 22, 0)
     
-    -- Drag Logic (Only if Menu is Open)
     if self.State.Enabled then
         if self.State.MouseDown and not self.State.MouseHeld and self:IsMouseOver(pos, size) then
             self.State.Watermark.Dragging = true
@@ -103,7 +96,6 @@ function RCM:DrawWatermark()
         end
     end
 
-    -- Draw
     RCM.Rect(pos, size, self.Theme.Border, 1)
     RCM.Rect(vector.create(pos.x + 1, pos.y + 1, 0), vector.create(size.x - 2, size.y - 2, 0), self.Theme.Background, 1)
     RCM.Rect(pos, vector.create(width, 2, 0), self.Theme.Accent, 1)
@@ -112,11 +104,9 @@ end
 
 function RCM:DrawKeyStrokes()
     if not self.State.KeyStrokes.Visible then return end
-    
     local pos = self.State.KeyStrokes.Pos
     local size = vector.create(130, 90, 0)
 
-    -- Drag Logic (Only if Menu is Open)
     if self.State.Enabled then
         if self.State.MouseDown and not self.State.MouseHeld and self:IsMouseOver(pos, size) then
             self.State.KeyStrokes.Dragging = true
@@ -129,24 +119,16 @@ function RCM:DrawKeyStrokes()
     end
 
     local keys = getpressedkeys() or {}
-    local function isPressed(k) 
-        for _, v in ipairs(keys) do if v == k then return true end end 
-        return false 
-    end
-
-    -- Layout: W (Top), A S D (Bottom), Space (BottomBar)
+    local function isPressed(k) for _, v in ipairs(keys) do if v == k then return true end end return false end
     local function drawKey(k, xOff, yOff, w, h)
         local pressed = isPressed(k)
         local kPos = vector.create(pos.x + xOff, pos.y + yOff, 0)
-        local kSize = vector.create(w, h, 0)
         local bg = pressed and self.Theme.Accent or self.Theme.Background
         local txt = pressed and self.Theme.Text or self.Theme.TextDim
-        
-        RCM.Rect(kPos, kSize, self.Theme.Border, 1)
+        RCM.Rect(kPos, vector.create(w, h, 0), self.Theme.Border, 1)
         RCM.Rect(vector.create(kPos.x + 1, kPos.y + 1, 0), vector.create(w - 2, h - 2, 0), bg, 0.8)
         RCM.Label(vector.create(kPos.x + (w/2) - 4, kPos.y + (h/2) - 6, 0), k, txt)
     end
-
     drawKey("W", 45, 0, 40, 40)
     drawKey("A", 0, 45, 40, 40)
     drawKey("S", 45, 45, 40, 40)
@@ -168,7 +150,6 @@ function Library:Window(props)
 
     function window:Draw()
         if not RCM.State.Enabled then return end
-
         local x, y = self.pos.x, self.pos.y
         local click = RCM.State.MouseDown and not RCM.State.MouseHeld
 
@@ -182,7 +163,6 @@ function Library:Window(props)
             else self.dragging = false end
         end
 
-        -- Header & Tab Calculation
         local tabX, tabY, tabRowH = 10, 25, 18
         for i, page in ipairs(self.pages) do
             local w = (7 * #page.name) + 15 
@@ -191,7 +171,6 @@ function Library:Window(props)
         end
         local headerHeight = tabY + 20 
 
-        -- Content Calculation
         local currentPage = self.pages[self.activePage]
         local contentHeight = 0
         if currentPage then
@@ -199,11 +178,8 @@ function Library:Window(props)
                 contentHeight = contentHeight + 20
                 for _, item in ipairs(section.items) do
                     contentHeight = contentHeight + 18
-                    if item.type == "dropdown" and item.open then
-                        contentHeight = contentHeight + (#item.options * 18)
-                    elseif item.type == "colorpicker" and item.open then
-                        contentHeight = contentHeight + (3 * 18) + 5 -- 3 sliders + padding
-                    end
+                    if item.type == "dropdown" and item.open then contentHeight = contentHeight + (#item.options * 18)
+                    elseif item.type == "colorpicker" and item.open then contentHeight = contentHeight + (3 * 18) + 5 end
                 end
                 contentHeight = contentHeight + 5
             end
@@ -212,13 +188,11 @@ function Library:Window(props)
         local totalHeight = headerHeight + contentHeight + 5
         self.size = vector.create(280, totalHeight, 0)
 
-        -- Render Body
         RCM.Rect(self.pos, self.size, RCM.Theme.Border, 1)
         RCM.Rect(vector.create(x + 1, y + 1, 0), vector.create(278, totalHeight - 2, 0), RCM.Theme.Background, 1)
         RCM.Rect(self.pos, vector.create(280, 2, 0), RCM.Theme.Accent, 1)
         RCM.Label(vector.create(x + 10, y + 5, 0), self.name, RCM.Theme.Text)
         
-        -- Render Tabs
         tabX, tabY = 10, 25
         for i, page in ipairs(self.pages) do
             local w = (7 * #page.name) + 10
@@ -231,13 +205,11 @@ function Library:Window(props)
         end
         RCM.Rect(vector.create(x + 5, y + headerHeight - 2, 0), vector.create(270, 1, 0), RCM.Theme.Hover, 1)
 
-        -- Render Items
         local cy = y + headerHeight
         if currentPage then
             for _, section in ipairs(currentPage.sections) do
                 RCM.Label(vector.create(x + 10, cy + 3, 0), "[" .. section.name .. "]", RCM.Theme.Section)
                 cy = cy + 20
-
                 for _, item in ipairs(section.items) do
                     local itemPos = vector.create(x + 15, cy, 0)
                     local hovered = RCM:IsMouseOver(itemPos, vector.create(250, 16, 0))
@@ -245,16 +217,13 @@ function Library:Window(props)
                     if hovered then RCM.Rect(itemPos, vector.create(250, 16, 0), RCM.Theme.Hover, 0.5) end
                     
                     local nameX = x + 20
-
                     if item.type == "toggle" then
                         if iClick then item.value = not item.value; item.callback(item.value) end
                         RCM.Label(vector.create(nameX, cy + 2, 0), item.name, RCM.Theme.Text)
                         RCM.Label(vector.create(x + 240, cy + 2, 0), item.value and "[ON]" or "[OFF]", item.value and RCM.Theme.Accent or RCM.Theme.Text, true)
-                    
                     elseif item.type == "button" then
                         if iClick then item.callback() end
                         RCM.Label(vector.create(nameX, cy + 2, 0), item.name, hovered and RCM.Theme.Accent or RCM.Theme.Text)
-                    
                     elseif item.type == "slider" then
                         if hovered and isleftpressed() then
                             local pct = math.clamp((RCM.State.MousePos.x - (x + 150)) / 100, 0, 1)
@@ -266,7 +235,6 @@ function Library:Window(props)
                         RCM.Rect(vector.create(barX, cy + 6, 0), vector.create(100, 4, 0), RCM.Theme.Section, 1)
                         RCM.Rect(vector.create(barX, cy + 6, 0), vector.create(((item.value - item.min)/(item.max - item.min))*100, 4, 0), RCM.Theme.Accent, 1)
                         RCM.Label(vector.create(barX + 110, cy + 2, 0), tostring(item.value), RCM.Theme.Text)
-                    
                     elseif item.type == "dropdown" then
                         if iClick then item.open = not item.open end
                         RCM.Label(vector.create(nameX, cy + 2, 0), item.name .. ": " .. item.selected, RCM.Theme.Text)
@@ -284,53 +252,35 @@ function Library:Window(props)
                             end
                             cy = cy - 18
                         end
-                    
                     elseif item.type == "binder" then
                         if iClick then item.listening = not item.listening end
                         if item.listening then
                             local keys = getpressedkeys()
                             if keys and #keys > 0 then
                                 local k = keys[1]
-                                -- Simple debounce: ensure it's not the click key
-                                if k ~= "Unknown" and k ~= "LeftMouse" then
-                                    item.key = k; item.listening = false; item.callback(k)
-                                end
+                                if k ~= "Unknown" and k ~= "LeftMouse" then item.key = k; item.listening = false; item.callback(k) end
                             end
                         end
-                        local txt = item.name .. ": " .. (item.listening and "..." or item.key)
-                        RCM.Label(vector.create(nameX, cy + 2, 0), txt, item.listening and RCM.Theme.Accent or RCM.Theme.Text)
-
+                        RCM.Label(vector.create(nameX, cy + 2, 0), item.name .. ": " .. (item.listening and "..." or item.key), item.listening and RCM.Theme.Accent or RCM.Theme.Text)
                     elseif item.type == "colorpicker" then
                         if iClick then item.open = not item.open end
                         RCM.Label(vector.create(nameX, cy + 2, 0), item.name, RCM.Theme.Text)
-                        -- Preview Box
                         RCM.Rect(vector.create(x + 230, cy + 2, 0), vector.create(20, 12, 0), item.color, 1)
-                        
                         if item.open then
                             cy = cy + 18
                             local function drawCSlider(lbl, val, max, col)
                                 local sHover = RCM:IsMouseOver(vector.create(x + 30, cy, 0), vector.create(230, 16, 0))
-                                if sHover and isleftpressed() then
-                                    local pct = math.clamp((RCM.State.MousePos.x - (x + 80)) / 150, 0, 1)
-                                    val = math.floor(pct * max)
-                                end
+                                if sHover and isleftpressed() then val = math.floor(math.clamp((RCM.State.MousePos.x - (x + 80)) / 150, 0, 1) * max) end
                                 RCM.Label(vector.create(x + 35, cy + 2, 0), lbl, col)
                                 RCM.Rect(vector.create(x + 80, cy + 6, 0), vector.create(150, 4, 0), RCM.Theme.Section, 1)
                                 RCM.Rect(vector.create(x + 80, cy + 6, 0), vector.create((val/max)*150, 4, 0), col, 1)
                                 return val
                             end
-                            
-                            local r = drawCSlider("R", math.floor(item.color.R * 255), 255, Color3.new(1,0,0))
-                            cy = cy + 18
-                            local g = drawCSlider("G", math.floor(item.color.G * 255), 255, Color3.new(0,1,0))
-                            cy = cy + 18
+                            local r = drawCSlider("R", math.floor(item.color.R * 255), 255, Color3.new(1,0,0)); cy = cy + 18
+                            local g = drawCSlider("G", math.floor(item.color.G * 255), 255, Color3.new(0,1,0)); cy = cy + 18
                             local b = drawCSlider("B", math.floor(item.color.B * 255), 255, Color3.new(0,0,1))
-                            
                             local newCol = Color3.fromRGB(r, g, b)
-                            if newCol ~= item.color then
-                                item.color = newCol
-                                item.callback(newCol)
-                            end
+                            if newCol ~= item.color then item.color = newCol; item.callback(newCol) end
                         end
                     end
 
@@ -365,7 +315,6 @@ function Library:Window(props)
     return window
 end
 
--- [ 5 ] Config System
 function Library:SaveConfig(name)
     local data = {}
     for _, win in ipairs(RCM.Windows) do
@@ -376,8 +325,7 @@ function Library:SaveConfig(name)
                     elseif item.type == "slider" then data[item.name] = item.value
                     elseif item.type == "dropdown" then data[item.name] = item.selected
                     elseif item.type == "binder" then data[item.name] = item.key
-                    elseif item.type == "colorpicker" then data[item.name] = {R=item.color.R, G=item.color.G, B=item.color.B}
-                    end
+                    elseif item.type == "colorpicker" then data[item.name] = {R=item.color.R, G=item.color.G, B=item.color.B} end
                 end
             end
         end
@@ -393,14 +341,12 @@ function Library:LoadConfig(name)
             for _, sec in ipairs(page.sections) do
                 for _, item in ipairs(sec.items) do
                     if data[item.name] ~= nil then
-                        if item.type == "toggle" then item.value = data[item.name]; item.callback(item.value)
-                        elseif item.type == "slider" then item.value = data[item.name]; item.callback(item.value)
-                        elseif item.type == "dropdown" then item.selected = data[item.name]; item.callback(item.selected)
-                        elseif item.type == "binder" then item.key = data[item.name]; item.callback(item.key)
+                        if item.type == "toggle" then item.value = data[item.name]; if item.callback then item.callback(item.value) end
+                        elseif item.type == "slider" then item.value = data[item.name]; if item.callback then item.callback(item.value) end
+                        elseif item.type == "dropdown" then item.selected = data[item.name]; if item.callback then item.callback(item.selected) end
+                        elseif item.type == "binder" then item.key = data[item.name]; if item.callback then item.callback(item.key) end
                         elseif item.type == "colorpicker" then 
-                            local c = data[item.name]
-                            item.color = Color3.new(c.R, c.G, c.B)
-                            item.callback(item.color)
+                            local c = data[item.name]; item.color = Color3.new(c.R, c.G, c.B); if item.callback then item.callback(item.color) end 
                         end
                     end
                 end
@@ -411,19 +357,23 @@ end
 
 -- [ 6 ] Init
 function RCM:Init()
-    local renderEvent = RunService.Render or game:GetService("RunService").RenderStepped
-    renderEvent:Connect(function()
+    local renderEvent = nil
+    if RunService and RunService.Render then renderEvent = RunService.Render
+    elseif game then renderEvent = game:GetService("RunService").RenderStepped end
+    
+    if not renderEvent then return warn("No Render event found") end
+    
+    -- [ FIX ] Auto-detect Connect vs connect
+    local connect = renderEvent.Connect or renderEvent.connect
+    connect(renderEvent, function()
         self:UpdateInput()
         self.State.ActiveTooltip = nil
         
-        -- Draw HUD (Watermark, KeyStrokes)
         self:DrawWatermark()
         self:DrawKeyStrokes()
 
-        -- Draw Windows
         for _, win in ipairs(self.Windows) do win:Draw() end
         
-        -- Draw Tooltip (Last)
         if self.State.ActiveTooltip then
             local t = self.State.ActiveTooltip
             local mp = self.State.MousePos
