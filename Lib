@@ -1,6 +1,6 @@
 --!optimization 2
--- [ RCM ] Render Control Module + Severe UI Library
--- Features: Stable Core + Draggable Watermark
+-- [ RCM ] Severe UI Library v2.5
+-- Features: Stable Core, Watermark, Keystrokes (WASD) with Modes
 
 local RCM = {}
 local Library = {}
@@ -11,7 +11,7 @@ RCM.Theme = {
     Border     = Color3.new(0.023, 0.023, 0.023),
     Accent     = Color3.new(0.8039, 0.0, 0.4980),
     Text       = Color3.new(1, 1, 1),
-    TextDim    = Color3.new(0.6, 0.6, 0.6),
+    TextDim    = Color3.new(0.6, 0.6, 0.6), -- Dim color for unpressed keys
     Section    = Color3.new(0.588, 0.588, 0.588),
     Hover      = Color3.new(0.2, 0.2, 0.2),
     TooltipBg  = Color3.new(0.05, 0.05, 0.05)
@@ -26,12 +26,22 @@ RCM.State = {
     LastToggle = 0,
     ActiveTooltip = nil,
     ScreenSize = vector.create(1920, 1080, 0),
-    -- [ NEW ] Watermark State
+    
+    -- FPS State
+    LastTick = 0, FrameCount = 0, CurrentFPS = 60,
+
+    -- HUD States
     Watermark = { 
         Visible = true, 
         Pos = vector.create(50, 50, 0), 
-        Dragging = false, 
-        Offset = vector.create(0,0,0) 
+        Dragging = false, Offset = vector.create(0,0,0) 
+    },
+    
+    KeyStrokes = { 
+        Visible = true, 
+        Mode = "Always", -- "Always" or "Pressed"
+        Pos = vector.create(50, 100, 0), 
+        Dragging = false, Offset = vector.create(0,0,0) 
     }
 }
 
@@ -57,8 +67,8 @@ function RCM:UpdateInput()
     elseif not currentDown then
         self.State.MouseDown = false
         self.State.MouseHeld = false
-        -- Stop dragging watermark
         self.State.Watermark.Dragging = false
+        self.State.KeyStrokes.Dragging = false
     end
 
     local keys = getpressedkeys()
@@ -73,6 +83,14 @@ function RCM:UpdateInput()
         self.State.Enabled = not self.State.Enabled
         self.State.LastToggle = tick()
     end
+
+    -- FPS
+    self.State.FrameCount = self.State.FrameCount + 1
+    if (tick() - self.State.LastTick) >= 1 then
+        self.State.CurrentFPS = self.State.FrameCount
+        self.State.FrameCount = 0
+        self.State.LastTick = tick()
+    end
 end
 
 function RCM:IsMouseOver(pos, size)
@@ -81,43 +99,90 @@ function RCM:IsMouseOver(pos, size)
        and m.y >= pos.y and m.y <= pos.y + size.y
 end
 
--- [ NEW ] Watermark Function
+-- [ 3 ] HUD Functions
 function RCM:DrawWatermark()
     if not self.State.Watermark.Visible then return end
     
     local pos = self.State.Watermark.Pos
-    
-    -- FPS Calculation
-    local fps = 60
-    local s, dt = pcall(function() return game:GetService("RunService").RenderStepped:Wait() end)
-    if s and dt > 0 then fps = math.floor(1/dt) end
-    
-    local text = "Severe UI | FPS: " .. tostring(fps)
+    local text = "Severe UI | FPS: " .. tostring(self.State.CurrentFPS)
     local width = (7 * #text) + 20
     local size = vector.create(width, 22, 0)
     
-    -- Drag Logic (Only allows moving when menu is OPEN)
     if self.State.Enabled then
         local click = self.State.MouseDown and not self.State.MouseHeld
         if click and self:IsMouseOver(pos, size) then
             self.State.Watermark.Dragging = true
             self.State.Watermark.Offset = vector.create(self.State.MousePos.x - pos.x, self.State.MousePos.y - pos.y, 0)
         end
-        
         if self.State.Watermark.Dragging then
             self.State.Watermark.Pos = vector.create(self.State.MousePos.x - self.State.Watermark.Offset.x, self.State.MousePos.y - self.State.Watermark.Offset.y, 0)
             pos = self.State.Watermark.Pos
         end
     end
 
-    -- Draw It
     RCM.Rect(pos, size, self.Theme.Border, 1)
     RCM.Rect(vector.create(pos.x + 1, pos.y + 1, 0), vector.create(size.x - 2, size.y - 2, 0), self.Theme.Background, 1)
     RCM.Rect(pos, vector.create(width, 2, 0), self.Theme.Accent, 1)
     RCM.Label(vector.create(pos.x + 10, pos.y + 4, 0), text, self.Theme.Text)
 end
 
--- [ 3 ] Library Core
+function RCM:DrawKeyStrokes()
+    if not self.State.KeyStrokes.Visible then return end
+    
+    local pos = self.State.KeyStrokes.Pos
+    local size = vector.create(130, 90, 0) -- Total size for dragging area
+
+    -- Drag Logic
+    if self.State.Enabled then
+        local click = self.State.MouseDown and not self.State.MouseHeld
+        if click and self:IsMouseOver(pos, size) then
+            self.State.KeyStrokes.Dragging = true
+            self.State.KeyStrokes.Offset = vector.create(self.State.MousePos.x - pos.x, self.State.MousePos.y - pos.y, 0)
+        end
+        if self.State.KeyStrokes.Dragging then
+            self.State.KeyStrokes.Pos = vector.create(self.State.MousePos.x - self.State.KeyStrokes.Offset.x, self.State.MousePos.y - self.State.KeyStrokes.Offset.y, 0)
+            pos = self.State.KeyStrokes.Pos
+        end
+    end
+
+    -- Key State Logic
+    local keys = getpressedkeys() or {}
+    local function isPressed(k) 
+        for _, v in ipairs(keys) do if v == k then return true end end 
+        return false 
+    end
+
+    -- Draw Single Key Helper
+    local function drawKey(keyName, xOff, yOff, w, h)
+        local pressed = isPressed(keyName)
+        
+        -- MODE: "Pressed" -> Hide if not pressed
+        if self.State.KeyStrokes.Mode == "Pressed" and not pressed then
+            return -- Don't draw
+        end
+
+        local kPos = vector.create(pos.x + xOff, pos.y + yOff, 0)
+        
+        -- MODE: "Always" -> Dim if not pressed, Accent if pressed
+        local bg = pressed and self.Theme.Accent or self.Theme.Background
+        local txt = pressed and self.Theme.Text or self.Theme.TextDim
+        local alpha = pressed and 1 or 0.5 -- slightly transparent if inactive
+
+        RCM.Rect(kPos, vector.create(w, h, 0), self.Theme.Border, 1)
+        RCM.Rect(vector.create(kPos.x + 1, kPos.y + 1, 0), vector.create(w - 2, h - 2, 0), bg, alpha)
+        
+        -- Center text roughly
+        RCM.Label(vector.create(kPos.x + (w/2) - 4, kPos.y + (h/2) - 6, 0), keyName, txt)
+    end
+
+    -- Layout: W (Top), A S D (Bottom)
+    drawKey("W", 45, 0, 40, 40)
+    drawKey("A", 0, 45, 40, 40)
+    drawKey("S", 45, 45, 40, 40)
+    drawKey("D", 90, 45, 40, 40)
+end
+
+-- [ 4 ] Library Core
 function Library:Window(props)
     if props.ToggleKey then RCM.State.ToggleKey = props.ToggleKey end
 
@@ -343,30 +408,22 @@ function RCM:Init()
         self:UpdateInput()
         self.State.ActiveTooltip = nil
         
-        -- [ NEW ] Draw Watermark
         self:DrawWatermark()
+        self:DrawKeyStrokes() -- [ NEW ]
 
         for _, win in ipairs(self.Windows) do
             win:Draw()
         end
         
         if self.State.ActiveTooltip then
-            local tipText = self.State.ActiveTooltip
-            local mPos = self.State.MousePos
-            local screen = self.State.ScreenSize
-            local textW = (8 * #tipText) + 12
-            
-            local tipX = mPos.x + 12
-            local tipY = mPos.y + 12
-            
-            if (tipX + textW) > screen.x then tipX = screen.x - textW - 5 end
-            if (tipY + 20) > screen.y then tipY = screen.y - 25 end
-            
-            local tipPos = vector.create(tipX, tipY, 1)
-            
-            RCM.Rect(tipPos, vector.create(textW, 20, 0), RCM.Theme.Border, 1)
-            RCM.Rect(vector.create(tipX + 1, tipY + 1, 1), vector.create(textW - 2, 18, 0), RCM.Theme.TooltipBg, 1)
-            RCM.Label(vector.create(tipX + 5, tipY + 3, 1), tipText, RCM.Theme.Text)
+            local t = self.State.ActiveTooltip
+            local mp = self.State.MousePos
+            local w = (8*#t)+12
+            local tx, ty = mp.x+12, mp.y+12
+            if (tx+w)>self.State.ScreenSize.x then tx=self.State.ScreenSize.x-w-5 end
+            RCM.Rect(vector.create(tx,ty,1), vector.create(w,20,0), RCM.Theme.Border, 1)
+            RCM.Rect(vector.create(tx+1,ty+1,1), vector.create(w-2,18,0), RCM.Theme.TooltipBg, 1)
+            RCM.Label(vector.create(tx+5,ty+3,1), t, RCM.Theme.Text)
         end
     end)
 end
