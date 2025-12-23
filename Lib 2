@@ -1,7 +1,7 @@
---[ RCM Library v11.5 | Update this on GitHub ]--
+--[ RCM Library v11.6 | Fixes: Slider Padding, Keybind Layout ]--
 local RCM = {}
 
-print("[RCM] Library Initialized v11.5 Stable")
+print("[RCM] Library Initialized v11.6 Stable")
 
 -- [ Configuration & Theme ]
 RCM.Theme = {
@@ -20,7 +20,8 @@ RCM.Theme = {
     ResizeHandle = Color3.fromRGB(255, 255, 255),
     EditModeText = Color3.fromRGB(255, 180, 50),
     InfoWinBg    = Color3.fromRGB(25, 25, 30),
-    TooltipBg    = Color3.fromRGB(25, 25, 30)
+    TooltipBg    = Color3.fromRGB(25, 25, 30),
+    Divider      = Color3.fromRGB(60, 60, 70)
 }
 
 RCM.Layer = { Base=1, Section=2, Item=3, Text=4, Widget=10, Popup=50, InfoWin=150, Tooltip=200, Snap=250, Notif=300 }
@@ -71,6 +72,14 @@ local function WrapText(str, maxChars)
     return lines
 end
 
+-- [ Widget Logic ]
+function RCM:HandleDraggableWidgets()
+    for _, wid in ipairs(RCM.Widgets) do 
+        RCM:HandleDraggable(wid)
+        if wid.draw then wid.draw() end
+    end
+end
+
 -- [ Core Logic ]
 function RCM:UpdateInput()
     local s, mPos = pcall(getmouseposition)
@@ -102,7 +111,6 @@ function RCM:UpdateInput()
 
     local keys = getpressedkeys()
     local isTogglePressed = false
-    -- Key mapping for Delete/Insert
     local KeyMap = { [46] = "Delete", [45] = "Insert" }
     
     if keys then 
@@ -153,7 +161,6 @@ function RCM:SetWatermark(text) RCM.State.Watermark.Text = text end
 function RCM:Notify(msg, duration) table.insert(RCM.Notifications, {id = os.clock()..math.random(), text = msg, duration = duration or 3, start = os.clock(), alpha = 0}) end
 function RCM:SetEditMode(val) RCM.State.EditMode = val end
 
--- [ Snapping & Layering ]
 function RCM:ReorderWidget(widget, action)
     local index = nil
     for i, w in ipairs(RCM.Widgets) do if w == widget then index = i break end end
@@ -238,7 +245,6 @@ function RCM:DrawSnapLines()
     end
 end
 
--- [ Widget & Window System ]
 function RCM:CreateWidget(props)
     local widget = {
         name = props.Name or "Widget",
@@ -299,7 +305,6 @@ function RCM:HandleDraggable(obj, ignoreEditMode, dragSize)
     end
 end
 
--- [ DrawStandardInterface ]
 function RCM:DrawStandardInterface()
     if RCM.State.Watermark.Visible then
         local p, t = RCM.State.Watermark.Pos, RCM.State.Watermark.Text
@@ -351,7 +356,14 @@ function RCM:DrawStandardInterface()
         local itemsToShow = {}
         for _, bind in ipairs(RCM.Binders) do if RCM.State.KeybindList.Mode == "Always" or (RCM.State.KeybindList.Mode == "Active" and bind.active) then table.insert(itemsToShow, bind) end end
         if #itemsToShow > 0 then
-            local p = RCM.State.KeybindList.Pos; local mw = 140; for _, b in ipairs(itemsToShow) do local tw = (7*#b.name)+(7*#b.key)+50; if tw>mw then mw=tw end end
+            local p = RCM.State.KeybindList.Pos; 
+            local mw = 160 -- INCREASED BASE WIDTH
+            for _, b in ipairs(itemsToShow) do 
+                -- Updated width calc with more padding
+                local tw = (7*#b.name)+(7*#b.key)+80 
+                if tw > mw then mw = tw end 
+            end
+            
             local th = 26 + (#itemsToShow * 20) + 4; local sz = vector.create(mw, th, 0)
             
             if not RCM.State.InputBusy and RCM.State.EditMode and RCM.State.MouseDown and not RCM.State.MouseHeld and RCM:IsMouseOver(p, vector.create(mw, 26, 0)) then 
@@ -374,24 +386,24 @@ function RCM:DrawStandardInterface()
             local ky = p.y + 30
             for _, b in ipairs(itemsToShow) do
                 local kt = "["..b.key.."]"; local mt = (b.mode=="Hold" and "[H]") or (b.mode=="Toggle" and "[T]") or "[A]"
+                local rightText = kt..mt
+                local rw = (7 * #rightText)
+                
+                -- Name
                 RCM.Label(vector.create(p.x+10, ky, 3), b.name, RCM.Theme.TextDim)
-                RCM.Label(vector.create(p.x+mw-(7*#kt)-(7*#mt)-10, ky, 3), kt..mt, b.active and RCM.Theme.Accent or RCM.Theme.Text)
+                
+                -- DIVIDER LINE
+                local divX = p.x + mw - rw - 15
+                RCM.Line(vector.create(divX, ky+2, 3), vector.create(divX, ky+12, 3), RCM.Theme.Divider, 0.5, 1)
+                
+                -- State/Key
+                RCM.Label(vector.create(p.x + mw - rw - 5, ky, 3), rightText, b.active and RCM.Theme.Accent or RCM.Theme.Text)
                 ky = ky + 20
             end
         end
     end
 end
 
--- [ Widget Drawers ]
-function RCM:HandleDraggableWidgets()
-    -- This method was previously missing
-    for _, wid in ipairs(RCM.Widgets) do 
-        RCM:HandleDraggable(wid)
-        if wid.draw then wid.draw() end
-    end
-end
-
--- [ Info Windows ]
 function RCM:ProcessInfoWindowsInput()
     if not RCM.State.Enabled then return end
     for i = #RCM.State.InfoWindows, 1, -1 do
@@ -444,7 +456,6 @@ function RCM:RenderInfoWindows()
     end
 end
 
--- [ Window System ]
 local function LibraryWindow(props)
     if props.ToggleKey then RCM.State.ToggleKey = props.ToggleKey end
     if RCM.Windows[1] then RCM.Windows[1].name = props.Name or RCM.Windows[1].name; return RCM.Windows[1] end
@@ -479,7 +490,6 @@ local function LibraryWindow(props)
 
         RCM.Rect(vector.create(x,y,z), self.size, RCM.Theme.Border, 1)
         RCM.Rect(vector.create(x+1,y+1,z), vector.create(WIN_W-2, totalH+18,0), RCM.Theme.Background, 1)
-
         RCM.Rect(vector.create(x+1,y+1,z), vector.create(WIN_W-2,headH,0), RCM.Theme.Header, 1)
         RCM.Label(vector.create(x+12,y+10,z+1), self.name, RCM.Theme.Text)
         RCM.Line(vector.create(x+1,y+headH,z), vector.create(x+WIN_W-1,y+headH,z), RCM.Theme.Border, 1, 1)
@@ -537,21 +547,38 @@ local function LibraryWindow(props)
 
                     elseif item.type == "slider" then
                         if hover and isleftpressed() and not RCM.State.InputBusy then
-                            local pct = math.clamp((RCM.State.MousePos.x - (valX - 100)) / 100, 0, 1)
+                            local barW = 100
+                            -- Correctly map mouse to bar width
+                            local barStart = valX - barW - 10 - 25 -- rough offset
+                            -- Actually let's use the explicit math used in drawing:
+                            local valStr = tostring(item.value); local vw = 7*#valStr
+                            local bx = valX - vw - 15 - 100
+                            
+                            local pct = math.clamp((RCM.State.MousePos.x - bx) / 100, 0, 1)
                             local nv = math.floor(item.min + (item.max - item.min) * pct)
                             if nv ~= item.value then item.value = nv; if item.callback then item.callback(nv) end; if item.flag then RCM.Flags[item.flag] = nv end end
                         end
                         RCM.Label(vector.create(nmX, cy + 4, z+3), item.name, RCM.Theme.Text)
-                        RCM.Label(vector.create(valX - 120, cy + 4, z+3), tostring(item.value), RCM.Theme.TextDim)
-                        local barX, barY = valX - 100, cy + 10
-                        RCM.Rect(vector.create(barX, barY, z+3), vector.create(100, 2, 0), RCM.Theme.SwitchBg, 1)
-                        local fillW = ((item.value - item.min)/(item.max - item.min))*100
+                        
+                        -- SLIDER FIX: Dynamic Layout
+                        local valStr = tostring(item.value)
+                        local valW = 7 * #valStr
+                        
+                        -- 1. Draw Value at far right
+                        RCM.Label(vector.create(valX - valW, cy + 4, z+3), valStr, RCM.Theme.TextDim)
+                        
+                        -- 2. Draw Bar to the left of value
+                        local barW = 100
+                        local barX = valX - valW - 15 - barW
+                        local barY = cy + 10
+                        
+                        RCM.Rect(vector.create(barX, barY, z+3), vector.create(barW, 2, 0), RCM.Theme.SwitchBg, 1)
+                        local fillW = ((item.value - item.min)/(item.max - item.min)) * barW
                         RCM.Rect(vector.create(barX, barY, z+3), vector.create(fillW, 2, 0), RCM.Theme.Accent, 1)
                         RCM.Circle(vector.create(barX+fillW, barY+1, z+4), 4, RCM.Theme.Text)
 
                     elseif item.type == "dropdown" then
                         if iClick then item.open = not item.open end
-                        
                         local dispText = item.selected
                         if item.multi then
                             local active = {}
@@ -560,7 +587,6 @@ local function LibraryWindow(props)
                             elseif #active <= 3 then dispText = table.concat(active, ", ") 
                             else dispText = #active .. " Selected" end
                         end
-                        
                         RCM.Label(vector.create(nmX, cy+4, z+3), FitText(item.name, 120), RCM.Theme.Text)
                         RCM.Label(vector.create(valX-(7*#dispText)-15, cy+4, z+3), dispText, RCM.Theme.Accent)
                         local triC = item.open and RCM.Theme.Accent or RCM.Theme.TextDim
@@ -589,13 +615,11 @@ local function LibraryWindow(props)
                             end
                             iH = iH + (#item.options * 22) + 6
                         end
-                        
                     elseif item.type == "button" then
                         if hover then RCM.Rect(vector.create(sx+8, cy+2, z+2), vector.create(COL_W-16, 20, 0), RCM.Theme.Hover, 1) end
                         RCM.Outline(vector.create(sx+8, cy+2, z+2), vector.create(COL_W-16, 20, 0), RCM.Theme.Border, 1)
                         if iClick and item.callback then item.callback() end
                         RCM.Label(vector.create(nmX, cy+4, z+3), item.name, hover and RCM.Theme.Accent or RCM.Theme.Text)
-
                     elseif item.type == "colorpicker" then
                         if iClick then item.open = not item.open end
                         RCM.Label(vector.create(nmX, cy + 4, z+3), item.name, RCM.Theme.Text)
@@ -621,7 +645,6 @@ local function LibraryWindow(props)
                             if nc ~= item.color then item.color = nc; if item.callback then item.callback(nc) end; if item.flag then RCM.Flags[item.flag] = {R=nc.R, G=nc.G, B=nc.B} end end
                             iH = iH + 75
                         end
-                    
                     elseif item.type == "binder" then
                         if iClick then item.listening = not item.listening end
                         if (RCM.State.RightMouseDown and not RCM.State.RightMouseHeld) and hover then RCM.State.ActivePopup = { BindItem = item, Pos = RCM.State.MousePos, Type = "Binder" } end
