@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v8.1 (Lite Fixed)
--- Features: Multi-Select, Tooltip Fix, Runtime Flags, Binders
--- Fixed: Added missing 'Binder' method
+-- [ RCM ] Severe UI Library v8.3 (Stable)
+-- Features: Multi-Select, Binders, Tooltips, Runtime Flags
+-- Fixed: Tooltip Stuck Bug (Resets state every frame)
 
 local RCM = {}
 
-print("[RCM] Library Initialized v8.1 Lite")
+print("[RCM] Library Initialized v8.3 Stable")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -138,9 +138,7 @@ end
 function RCM:SetWatermark(text) self.State.Watermark.Text = text end
 function RCM:Notify(msg, duration) table.insert(self.Notifications, {id = tick()..math.random(), text = msg, duration = duration or 3, start = tick(), alpha = 0}) end
 
--- ============================================================================
 -- [ 4 ] WINDOW & DRAWING LOGIC
--- ============================================================================
 function RCM:OpenInfoWindow(title, content)
     local processedLines = {}
     if type(content) == "table" then
@@ -157,7 +155,6 @@ function RCM:OpenInfoWindow(title, content)
 end
 
 function RCM:DrawStandardInterface()
-    -- Watermark
     if self.State.Watermark.Visible then
         local p, t = self.State.Watermark.Pos, self.State.Watermark.Text
         if self.State.Watermark.Extra then t = t.." | FPS: "..self.State.CurrentFPS end
@@ -175,7 +172,6 @@ function RCM:DrawStandardInterface()
         RCM.Rect(p, vector.create(sz.x,2,0), self.Theme.Accent, 1); RCM.Label(vector.create(p.x+10,p.y+4,3), t, self.Theme.Text)
     end
     
-    -- Notifications
     local startY = 50
     for i=#self.Notifications, 1, -1 do
         local n = self.Notifications[i]; local el = tick()-n.start; local rem = n.duration-el
@@ -189,7 +185,6 @@ function RCM:DrawStandardInterface()
         end
     end
 
-    -- Keybind List Draw
     if self.State.KeybindList.Visible and self.State.Enabled then
         local itemsToShow = {}
         for _, bind in ipairs(RCM.Binders) do
@@ -229,13 +224,12 @@ function RCM:DrawStandardInterface()
     end
 end
 
--- Popup Draw Logic
 function RCM:DrawPopup()
     if not self.State.ActivePopup then return end
     local p = self.State.ActivePopup; local bind = p.BindItem; local pos = p.Pos
     local opts = {"Hold", "Toggle", "Always"}; local w, h = 80, (#opts*20)+4
-    RCM.Rect(pos, vector.create(w, h, 0), self.Theme.Border, 1)
-    RCM.Rect(vector.create(pos.x+1, pos.y+1, 1), vector.create(w-2, h-2, 0), self.Theme.Background, 1)
+    RCM.Rect(pos, vector.create(w, h, 20), self.Theme.Border, 1)
+    RCM.Rect(vector.create(pos.x+1, pos.y+1, 20), vector.create(w-2, h-2, 0), self.Theme.Background, 1)
     local cy = pos.y + 2
     for _, m in ipairs(opts) do
         local op = vector.create(pos.x+2, cy, 20); local os = vector.create(w-4, 18, 0)
@@ -438,27 +432,17 @@ local function LibraryWindow(props)
         local pg = {name=p.Name, sections={}}
         function pg:Section(p)
             local sec = {name=p.Name, side=p.Side or "Left", items={}}
-            function sec:Toggle(p) 
-                table.insert(sec.items, {type="toggle", name=p.Name, value=p.Default or false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip})
-                if p.Flag then RCM.Flags[p.Flag] = p.Default or false end
-            end
-            function sec:Slider(p) 
-                table.insert(sec.items, {type="slider", name=p.Name, value=p.Default or p.Min, min=p.Min, max=p.Max, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}) 
-                if p.Flag then RCM.Flags[p.Flag] = p.Default or p.Min end
-            end
+            function sec:Toggle(p) table.insert(sec.items, {type="toggle", name=p.Name, value=p.Default or false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}); if p.Flag then RCM.Flags[p.Flag] = p.Default or false end end
+            function sec:Slider(p) table.insert(sec.items, {type="slider", name=p.Name, value=p.Default or p.Min, min=p.Min, max=p.Max, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}); if p.Flag then RCM.Flags[p.Flag] = p.Default or p.Min end end
             function sec:Dropdown(p) 
-                local sel = p.Default
-                if p.Multi and type(sel) ~= "table" then sel = {} end 
-                table.insert(sec.items, {type="dropdown", name=p.Name, options=p.Options, selected=sel, open=false, multi=p.Multi, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip})
-                if p.Flag then RCM.Flags[p.Flag] = sel end
+                local sel = p.Default; if p.Multi and type(sel) ~= "table" then sel = {} end 
+                table.insert(sec.items, {type="dropdown", name=p.Name, options=p.Options, selected=sel, open=false, multi=p.Multi, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}); if p.Flag then RCM.Flags[p.Flag] = sel end 
             end
             function sec:Button(p) table.insert(sec.items, {type="button", name=p.Name, callback=p.Callback, tooltip=p.Tooltip}) end
             function sec:ColorPicker(p) 
                 local c = p.Default or Color3.new(1,1,1)
-                table.insert(sec.items, {type="colorpicker", name=p.Name, color=c, open=false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}) 
-                if p.Flag then RCM.Flags[p.Flag] = {R=c.R, G=c.G, B=c.B} end
+                table.insert(sec.items, {type="colorpicker", name=p.Name, color=c, open=false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}); if p.Flag then RCM.Flags[p.Flag] = {R=c.R, G=c.G, B=c.B} end
             end
-            -- ADDED BACK THE MISSING BINDER METHOD
             function sec:Binder(p) 
                 local b = {type="binder", name=p.Name, key=p.Default or "None", mode="Hold", active=false, listening=false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}
                 table.insert(sec.items, b); table.insert(RCM.Binders, b)
@@ -479,14 +463,13 @@ function RCM:Init()
     local ren = RunService.Render or game:GetService("RunService").RenderStepped
     ren:Connect(function()
         self.State.InputBusy = false
+        self.State.ActiveTooltip = nil -- [FIX] Reset tooltip every frame
         self:UpdateInput()
         self:UpdateBinders()
         self:DrawStandardInterface()
         for _, w in ipairs(self.Windows) do w:Draw() end
-        self:DrawPopup() -- Added Popup Draw logic back to Main Loop
-        
-        -- Tooltip Render
-        if self.State.ActiveTooltip and not self.State.ActivePopup then
+        self:DrawPopup()
+        if self.State.ActiveTooltip and not self.State.ActivePopup and self.State.Enabled then
             local t, m = self.State.ActiveTooltip, self.State.MousePos
             local w = (8*#t)+12
             RCM.Rect(vector.create(m.x+12,m.y+12,RCM.Layer.Tooltip), vector.create(w,20,0), RCM.Theme.Border, 1)
