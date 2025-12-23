@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v9.1 (Advanced Snapping)
--- Features: Modular Host, Smart Edge Snapping, Proximity Fading
--- Update: Snapping now includes Screen Edges and smooth fade-in visuals.
+-- [ RCM ] Severe UI Library v9.2 (Widget Snapping)
+-- Features: Modular Host, Edge Snapping, Widget-to-Widget Snapping
+-- Update: Objects now snap to each other's edges and centers.
 
 local RCM = {}
 
-print("[RCM] Library Initialized v9.1 Core")
+print("[RCM] Library Initialized v9.2 Core")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -17,7 +17,7 @@ RCM.Theme = {
     TextDim    = Color3.new(0.5, 0.5, 0.5),
     Hover      = Color3.new(0.16, 0.16, 0.16),
     TooltipBg  = Color3.new(0.05, 0.05, 0.05),
-    SnapLine   = Color3.new(0.2, 0.8, 0.2), -- Green Snap Lines
+    SnapLine   = Color3.new(0.2, 0.8, 0.2), 
     InfoWinBg  = Color3.new(0.1, 0.1, 0.1),
     Link       = Color3.new(0.4, 0.6, 1),
     Section    = Color3.new(0.25, 0.25, 0.25),
@@ -40,7 +40,7 @@ RCM.State = {
     KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) },
     InfoWindows = {},
     InputBusy = false,
-    Snapping = { ActiveLines = {} }, -- Stores lines to draw {Start, End, Alpha}
+    Snapping = { ActiveLines = {} },
     LastTick = 0, FrameCount = 0, CurrentFPS = 60
 }
 
@@ -87,7 +87,7 @@ function RCM:UpdateInput()
         for _, win in ipairs(self.State.InfoWindows) do win.dragging = false end
         for _, win in ipairs(RCM.Windows) do win.dragging = false end
         for _, wid in ipairs(RCM.Widgets) do wid.dragging = false end
-        self.State.Snapping.ActiveLines = {} -- Clear lines when not dragging
+        self.State.Snapping.ActiveLines = {} 
     end
 
     local rDown = isrightpressed()
@@ -147,27 +147,52 @@ function RCM:SetWatermark(text) self.State.Watermark.Text = text end
 function RCM:Notify(msg, duration) table.insert(self.Notifications, {id = tick()..math.random(), text = msg, duration = duration or 3, start = tick(), alpha = 0}) end
 
 -- ============================================================================
--- [ 5 ] ADVANCED SNAPPING SYSTEM
+-- [ 5 ] ADVANCED SNAPPING SYSTEM (V9.2)
 -- ============================================================================
--- Features: Edge Snapping, Center Snapping, Proximity Fade
-function RCM:CalculateSnap(rawPos, objSize)
+-- Now includes Widget-to-Widget snapping logic
+function RCM:CalculateSnap(currentObj, rawPos)
     local snapPos = rawPos
+    local objSize = currentObj.size or vector.create(0,0,0)
     local screen = self.State.ScreenSize
-    local threshold = 25 -- Distance to start fading in
-    local lockDist = 8   -- Distance to hard lock
+    local threshold = 15 
+    local lockDist = 8   
     
     self.State.Snapping.ActiveLines = {} 
 
-    -- Define Screen Targets
-    local targetsX = { 0, screen.x / 2, screen.x } -- Left, Center, Right
-    local targetsY = { 0, screen.y / 2, screen.y } -- Top, Center, Bottom
+    -- 1. Gather all Snap Targets (Screen + Other Objects)
+    local targetsX = { 0, screen.x / 2, screen.x } 
+    local targetsY = { 0, screen.y / 2, screen.y } 
     
-    -- Define Object Anchors relative to current pos
-    -- We calculate offsets: 0 (Left/Top), Size/2 (Mid), Size (Right/Bottom)
+    local function AddTargets(other)
+        if other == currentObj then return end
+        if not other.pos or not other.size then return end
+        -- Edges and Center of other object
+        table.insert(targetsX, other.pos.x)
+        table.insert(targetsX, other.pos.x + other.size.x)
+        table.insert(targetsX, other.pos.x + (other.size.x / 2))
+        
+        table.insert(targetsY, other.pos.y)
+        table.insert(targetsY, other.pos.y + other.size.y)
+        table.insert(targetsY, other.pos.y + (other.size.y / 2))
+    end
+
+    -- Add Windows
+    for _, w in ipairs(self.Windows) do AddTargets(w) end
+    -- Add Widgets
+    for _, w in ipairs(self.Widgets) do AddTargets(w) end
+    -- Add Watermark
+    if self.State.Watermark.Visible then
+        local w = self.State.Watermark; local t = w.Text; if w.Extra then t=t.."..." end
+        local sz = vector.create((7*#t)+20, 22, 0)
+        -- Create dummy object for calc
+        AddTargets({pos=w.Pos, size=sz}) 
+    end
+
+    -- 2. Define Object Anchors (Edges/Center of the object being dragged)
     local anchorsX = { 0, objSize.x / 2, objSize.x }
     local anchorsY = { 0, objSize.y / 2, objSize.y }
 
-    -- Helper to process axis
+    -- 3. Check Axis Logic
     local function CheckAxis(currentVal, anchors, targets, isX)
         local bestSnap = nil
         local minDiff = threshold
@@ -177,11 +202,11 @@ function RCM:CalculateSnap(rawPos, objSize)
             for _, target in ipairs(targets) do
                 local diff = math.abs(point - target)
                 
-                -- Fade Logic
                 if diff < threshold then
-                    local alpha = 1 - (diff / threshold) -- 0 to 1
+                    local alpha = 1 - (diff / threshold)
                     
-                    -- Visual Line Data
+                    -- Visual Lines (Dynamic Length based on contact?)
+                    -- For now, full screen lines for clarity
                     local lineStart, lineEnd
                     if isX then
                         lineStart = vector.create(target, 0, RCM.Layer.Snap)
@@ -192,7 +217,6 @@ function RCM:CalculateSnap(rawPos, objSize)
                     end
                     table.insert(self.State.Snapping.ActiveLines, { A = lineStart, B = lineEnd, Alpha = alpha })
                     
-                    -- Hard Snap Logic
                     if diff < lockDist and diff < minDiff then
                         minDiff = diff
                         bestSnap = target - anchorOffset
@@ -215,12 +239,8 @@ end
 function RCM:DrawSnapLines()
     if not self.State.InputBusy then return end 
     for _, line in ipairs(self.State.Snapping.ActiveLines) do
-        -- Draw main line
         RCM.Line(line.A, line.B, self.Theme.SnapLine, line.Alpha, 1)
-        -- Draw glowing effect (thicker, lower alpha)
-        if line.Alpha > 0.5 then
-            RCM.Line(line.A, line.B, self.Theme.SnapLine, line.Alpha * 0.3, 3)
-        end
+        if line.Alpha > 0.5 then RCM.Line(line.A, line.B, self.Theme.SnapLine, line.Alpha * 0.3, 3) end
     end
 end
 
@@ -254,7 +274,8 @@ function RCM:HandleDraggable(obj)
     if obj.dragging then
         if self.State.MouseDown then
             local rawPos = vector.create(self.State.MousePos.x - obj.dragOffset.x, self.State.MousePos.y - obj.dragOffset.y, 0)
-            obj.pos = self:CalculateSnap(rawPos, obj.size) -- Apply Advanced Snap
+            -- Apply v9.2 Snapping
+            obj.pos = self:CalculateSnap(obj, rawPos) 
             self.State.InputBusy = true
         else
             obj.dragging = false
@@ -265,17 +286,9 @@ end
 -- Main Window Logic
 local function LibraryWindow(props)
     if props.ToggleKey then RCM.State.ToggleKey = props.ToggleKey end
-    if RCM.Windows[1] then 
-        RCM.Windows[1].name = props.Name or RCM.Windows[1].name
-        return RCM.Windows[1] 
-    end
+    if RCM.Windows[1] then RCM.Windows[1].name = props.Name or RCM.Windows[1].name; return RCM.Windows[1] end
 
-    local window = { 
-        name = props.Name or "UI", 
-        pos = props.Position or vector.create(200,200,0), 
-        size = vector.create(WIN_W, 30, 0), 
-        dragging=false, dragOffset=vector.create(0,0,0), pages={}, activePage=1 
-    }
+    local window = { name = props.Name or "UI", pos = props.Position or vector.create(200,200,0), size = vector.create(WIN_W, 30, 0), dragging=false, dragOffset=vector.create(0,0,0), pages={}, activePage=1 }
 
     function window:Draw()
         if not RCM.State.Enabled then return end
@@ -486,7 +499,7 @@ function RCM:DrawInfoWindows()
         local w, hh, ch = 300, 22, 10
         for _, it in ipairs(win.items) do ch=ch+(it.type=="sep" and 8 or 16) end
         local th = hh + ch
-        win.size = vector.create(w, th, 0) -- Update size for snapping
+        win.size = vector.create(w, th, 0) 
         
         -- Logic
         if not self.State.InputBusy or win.dragging then
@@ -505,7 +518,7 @@ function RCM:DrawInfoWindows()
         if win.dragging then 
             if self.State.MouseDown then
                 local raw = vector.create(self.State.MousePos.x-win.dragOffset.x, self.State.MousePos.y-win.dragOffset.y, 0)
-                win.pos = self:CalculateSnap(raw, win.size) -- Snapping
+                win.pos = self:CalculateSnap(win, raw) 
                 self.State.InputBusy=true 
             else win.dragging = false end
         end
@@ -531,7 +544,6 @@ function RCM:DrawInfoWindows()
 end
 
 function RCM:DrawStandardInterface()
-    -- Watermark
     if self.State.Watermark.Visible then
         local p, t = self.State.Watermark.Pos, self.State.Watermark.Text
         if self.State.Watermark.Extra then 
@@ -547,7 +559,9 @@ function RCM:DrawStandardInterface()
             if self.State.Watermark.Dragging then
                 if self.State.MouseDown then
                     local raw = vector.create(self.State.MousePos.x-self.State.Watermark.Offset.x, self.State.MousePos.y-self.State.Watermark.Offset.y, 0)
-                    p = self:CalculateSnap(raw, sz); self.State.Watermark.Pos = p
+                    -- Dummy Object for Watermark to snap to others
+                    local dummy = { pos=raw, size=sz } 
+                    p = self:CalculateSnap(dummy, raw); self.State.Watermark.Pos = p
                     self.State.InputBusy = true
                 else self.State.Watermark.Dragging = false end
             end
@@ -580,7 +594,9 @@ function RCM:DrawStandardInterface()
             if self.State.KeybindList.Dragging then 
                 if self.State.MouseDown then
                     local raw = vector.create(self.State.MousePos.x-self.State.KeybindList.Offset.x, self.State.MousePos.y-self.State.KeybindList.Offset.y, 0)
-                    self.State.KeybindList.Pos = self:CalculateSnap(raw, sz)
+                    -- Dummy object for Keybind list
+                    local dummy = { pos=raw, size=sz }
+                    self.State.KeybindList.Pos = self:CalculateSnap(dummy, raw)
                     p=self.State.KeybindList.Pos; self.State.InputBusy=true 
                 else self.State.KeybindList.Dragging=false end
             end
