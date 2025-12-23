@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v7.4 (RELEASE)
--- Features: Wiki System, Focused Dragging, Notifications, Keybind Modes, HUD
+-- [ RCM ] Severe UI Library v7.5 (RELEASE)
+-- Fixed: Binder Right-Click Context Menu (Restored missing input var)
 
 local RCM = {}
 local Library = {}
 
-print("[RCM] Library Loaded (v7.4)")
+print("[RCM] Library Loaded (v7.5)")
 
 -- [ 1 ] Configuration
 RCM.Theme = {
@@ -469,10 +469,6 @@ function RCM:DrawPopup()
     end
 end
 
--- ============================================================================
--- [ 4 ] WINDOW & ELEMENTS
--- ============================================================================
-
 function Library:Window(props)
     if props.ToggleKey then RCM.State.ToggleKey = props.ToggleKey end
     if props.Name then RCM.State.Watermark.Text = props.Name end
@@ -490,6 +486,9 @@ function Library:Window(props)
     function window:Draw()
         if not RCM.State.Enabled then return end
         
+        -- [ FIX ] Restored rClick variable for Context Menu logic
+        local rClick = RCM.State.RightMouseDown and not RCM.State.RightMouseHeld
+
         if not RCM.State.InputBusy then
             local x, y = self.pos.x, self.pos.y
             local click = RCM.State.MouseDown and not RCM.State.MouseHeld
@@ -743,5 +742,4 @@ function RCM:CreateWindow(props)
 end
 
 RCM:Init()
-
 return RCM
