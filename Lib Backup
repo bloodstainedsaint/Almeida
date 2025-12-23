@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v9.3 (Resizing & Snapping)
--- Features: Modular Host, Widget-to-Widget Snapping, Resizable Widgets
--- Update: Added Resize handle logic with edge snapping support.
+-- [ RCM ] Severe UI Library v9.4 (Stable Fix)
+-- Features: Modular Host, Widget Snapping, Resizing
+-- Fixed: "attempt to index nil with MouseDown" (Replaced 'self' with 'RCM')
 
 local RCM = {}
 
-print("[RCM] Library Initialized v9.3 Core")
+print("[RCM] Library Initialized v9.4 Stable")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -77,43 +77,43 @@ end
 -- [ 4 ] Core Logic
 function RCM:UpdateInput()
     local s, mPos = pcall(getmouseposition)
-    if s and mPos then self.State.MousePos = mPos end
-    if workspace.CurrentCamera then self.State.ScreenSize = workspace.CurrentCamera.ViewportSize end
+    if s and mPos then RCM.State.MousePos = mPos end
+    if workspace.CurrentCamera then RCM.State.ScreenSize = workspace.CurrentCamera.ViewportSize end
 
     local lDown = isleftpressed()
-    if lDown and not self.State.MouseDown then self.State.MouseDown = true
-    elseif lDown and self.State.MouseDown then self.State.MouseHeld = true
+    if lDown and not RCM.State.MouseDown then RCM.State.MouseDown = true
+    elseif lDown and RCM.State.MouseDown then RCM.State.MouseHeld = true
     elseif not lDown then
-        self.State.MouseDown = false; self.State.MouseHeld = false
-        self.State.Watermark.Dragging = false; self.State.KeybindList.Dragging = false
-        for _, win in ipairs(self.State.InfoWindows) do win.dragging = false end
+        RCM.State.MouseDown = false; RCM.State.MouseHeld = false
+        RCM.State.Watermark.Dragging = false; RCM.State.KeybindList.Dragging = false
+        for _, win in ipairs(RCM.State.InfoWindows) do win.dragging = false end
         for _, win in ipairs(RCM.Windows) do win.dragging = false end
         for _, wid in ipairs(RCM.Widgets) do wid.dragging = false; wid.resizing = false end
-        self.State.Snapping.ActiveLines = {} 
+        RCM.State.Snapping.ActiveLines = {} 
     end
 
     local rDown = isrightpressed()
-    if rDown and not self.State.RightMouseDown then self.State.RightMouseDown = true
-    elseif rDown and self.State.RightMouseDown then self.State.RightMouseHeld = true
-    elseif not rDown then self.State.RightMouseDown = false; self.State.RightMouseHeld = false end
+    if rDown and not RCM.State.RightMouseDown then RCM.State.RightMouseDown = true
+    elseif rDown and RCM.State.RightMouseDown then RCM.State.RightMouseHeld = true
+    elseif not rDown then RCM.State.RightMouseDown = false; RCM.State.RightMouseHeld = false end
 
-    if self.State.MouseDown and not self.State.MouseHeld and self.State.ActivePopup then
-        local p = self.State.ActivePopup
+    if RCM.State.MouseDown and not RCM.State.MouseHeld and RCM.State.ActivePopup then
+        local p = RCM.State.ActivePopup
         local size = p.Size or vector.create(80, 64, 0)
-        if not self:IsMouseOver(p.Pos, size) then self.State.ActivePopup = nil end
+        if not RCM:IsMouseOver(p.Pos, size) then RCM.State.ActivePopup = nil end
     end
 
     local keys = getpressedkeys()
     local isTogglePressed = false
-    if keys then for _, k in ipairs(keys) do if k == self.State.ToggleKey then isTogglePressed = true break end end end
+    if keys then for _, k in ipairs(keys) do if k == RCM.State.ToggleKey then isTogglePressed = true break end end end
 
-    if isTogglePressed and (tick() - self.State.LastToggle > 0.3) then
-        self.State.Enabled = not self.State.Enabled; self.State.LastToggle = tick()
+    if isTogglePressed and (tick() - RCM.State.LastToggle > 0.3) then
+        RCM.State.Enabled = not RCM.State.Enabled; RCM.State.LastToggle = tick()
     end
 
-    self.State.FrameCount = self.State.FrameCount + 1
-    if (tick() - self.State.LastTick) >= 1 then
-        self.State.CurrentFPS = self.State.FrameCount; self.State.FrameCount = 0; self.State.LastTick = tick()
+    RCM.State.FrameCount = RCM.State.FrameCount + 1
+    if (tick() - RCM.State.LastTick) >= 1 then
+        RCM.State.CurrentFPS = RCM.State.FrameCount; RCM.State.FrameCount = 0; RCM.State.LastTick = tick()
     end
 end
 
@@ -141,20 +141,19 @@ function RCM:UpdateBinders()
 end
 
 function RCM:IsMouseOver(pos, size)
-    local m = self.State.MousePos
+    local m = RCM.State.MousePos
     return m.x >= pos.x and m.x <= pos.x + size.x and m.y >= pos.y and m.y <= pos.y + size.y
 end
 
-function RCM:SetWatermark(text) self.State.Watermark.Text = text end
-function RCM:Notify(msg, duration) table.insert(self.Notifications, {id = tick()..math.random(), text = msg, duration = duration or 3, start = tick(), alpha = 0}) end
+function RCM:SetWatermark(text) RCM.State.Watermark.Text = text end
+function RCM:Notify(msg, duration) table.insert(RCM.Notifications, {id = tick()..math.random(), text = msg, duration = duration or 3, start = tick(), alpha = 0}) end
 
 -- ============================================================================
 -- [ 5 ] SNAPPING & RESIZING SYSTEM
 -- ============================================================================
 
--- Helper: Get snap targets from all other visible objects
 function RCM:GetSnapTargets(currentObj)
-    local screen = self.State.ScreenSize
+    local screen = RCM.State.ScreenSize
     local targetsX = { 0, screen.x / 2, screen.x } 
     local targetsY = { 0, screen.y / 2, screen.y } 
     
@@ -167,24 +166,23 @@ function RCM:GetSnapTargets(currentObj)
         table.insert(targetsY, other.pos.y + other.size.y)
     end
 
-    for _, w in ipairs(self.Windows) do Add(w) end
-    for _, w in ipairs(self.Widgets) do Add(w) end
-    if self.State.Watermark.Visible then
-        local w = self.State.Watermark; local t = w.Text; if w.Extra then t=t.."..." end
+    for _, w in ipairs(RCM.Windows) do Add(w) end
+    for _, w in ipairs(RCM.Widgets) do Add(w) end
+    if RCM.State.Watermark.Visible then
+        local w = RCM.State.Watermark; local t = w.Text; if w.Extra then t=t.."..." end
         Add({pos=w.Pos, size=vector.create((7*#t)+20, 22, 0)}) 
     end
     return targetsX, targetsY
 end
 
--- Logic for DRAGGING (Moves Position)
 function RCM:CalculateDragSnap(currentObj, rawPos)
     local snapPos = rawPos
     local objSize = currentObj.size or vector.create(0,0,0)
     local targetsX, targetsY = self:GetSnapTargets(currentObj)
-    local screen = self.State.ScreenSize
+    local screen = RCM.State.ScreenSize
     local threshold, lockDist = 15, 8
     
-    self.State.Snapping.ActiveLines = {} -- Reset lines
+    RCM.State.Snapping.ActiveLines = {} 
 
     local anchorsX = { 0, objSize.x / 2, objSize.x }
     local anchorsY = { 0, objSize.y / 2, objSize.y }
@@ -200,7 +198,7 @@ function RCM:CalculateDragSnap(currentObj, rawPos)
                     local ls, le
                     if isX then ls=vector.create(t,0,RCM.Layer.Snap); le=vector.create(t,screen.y,0)
                     else ls=vector.create(0,t,RCM.Layer.Snap); le=vector.create(screen.x,t,0) end
-                    table.insert(self.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
+                    table.insert(RCM.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
                     if diff < lockDist and diff < minD then minD = diff; best = t - off end
                 end
             end
@@ -211,17 +209,15 @@ function RCM:CalculateDragSnap(currentObj, rawPos)
     return vector.create(CheckAxis(rawPos.x, anchorsX, targetsX, true), CheckAxis(rawPos.y, anchorsY, targetsY, false), 0)
 end
 
--- Logic for RESIZING (Changes Size, Anchored Top-Left)
 function RCM:CalculateResizeSnap(currentObj, rawSize)
     local snapSize = rawSize
     local pos = currentObj.pos
     local targetsX, targetsY = self:GetSnapTargets(currentObj)
-    local screen = self.State.ScreenSize
+    local screen = RCM.State.ScreenSize
     local threshold, lockDist = 15, 8
     
-    self.State.Snapping.ActiveLines = {}
+    RCM.State.Snapping.ActiveLines = {}
 
-    -- Only check the Bottom-Right corner against targets
     local function CheckAxis(currentSizeVal, posVal, targets, isX)
         local edge = posVal + currentSizeVal -- Bottom or Right edge
         local best = nil; local minD = threshold
@@ -233,11 +229,11 @@ function RCM:CalculateResizeSnap(currentObj, rawSize)
                 local ls, le
                 if isX then ls=vector.create(t,0,RCM.Layer.Snap); le=vector.create(t,screen.y,0)
                 else ls=vector.create(0,t,RCM.Layer.Snap); le=vector.create(screen.x,t,0) end
-                table.insert(self.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
+                table.insert(RCM.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
                 
                 if diff < lockDist and diff < minD then
                     minD = diff
-                    best = t - posVal -- New size is (Target - StartPos)
+                    best = t - posVal
                 end
             end
         end
@@ -253,10 +249,10 @@ function RCM:CalculateResizeSnap(currentObj, rawSize)
 end
 
 function RCM:DrawSnapLines()
-    if not self.State.InputBusy then return end 
-    for _, line in ipairs(self.State.Snapping.ActiveLines) do
-        RCM.Line(line.A, line.B, self.Theme.SnapLine, line.Alpha, 1)
-        if line.Alpha > 0.5 then RCM.Line(line.A, line.B, self.Theme.SnapLine, line.Alpha * 0.3, 3) end
+    if not RCM.State.InputBusy then return end 
+    for _, line in ipairs(RCM.State.Snapping.ActiveLines) do
+        RCM.Line(line.A, line.B, RCM.Theme.SnapLine, line.Alpha, 1)
+        if line.Alpha > 0.5 then RCM.Line(line.A, line.B, RCM.Theme.SnapLine, line.Alpha * 0.3, 3) end
     end
 end
 
@@ -269,62 +265,61 @@ function RCM:CreateWidget(props)
         name = props.Name or "Widget",
         pos = props.Position or vector.create(100, 100, 0),
         size = props.Size or vector.create(100, 100, 0),
-        minSize = props.MinSize or vector.create(50, 30, 0), -- Prevent inversion
-        resizable = (props.Resizable == nil and true) or props.Resizable, -- Default true
+        minSize = props.MinSize or vector.create(50, 30, 0),
+        resizable = (props.Resizable == nil and true) or props.Resizable, 
         draw = props.Draw, 
         dragging = false, resizing = false,
         dragOffset = vector.create(0,0,0)
     }
-    table.insert(self.Widgets, widget)
+    table.insert(RCM.Widgets, widget)
     return widget
 end
 
 function RCM:HandleDraggable(obj)
-    local click = self.State.MouseDown and not self.State.MouseHeld
+    -- [ FIX ] Using RCM.State directly prevents context errors
+    local click = RCM.State.MouseDown and not RCM.State.MouseHeld
     
-    if not self.State.InputBusy then
+    if not RCM.State.InputBusy then
         -- 1. Check Resize (Bottom Right Corner)
         if obj.resizable then
             local resizeHandleSize = 15
             local handlePos = vector.create(obj.pos.x + obj.size.x - resizeHandleSize, obj.pos.y + obj.size.y - resizeHandleSize, 0)
             
-            if click and self:IsMouseOver(handlePos, vector.create(resizeHandleSize, resizeHandleSize, 0)) then
+            if click and RCM:IsMouseOver(handlePos, vector.create(resizeHandleSize, resizeHandleSize, 0)) then
                 obj.resizing = true
-                -- Offset isn't strictly needed for resize calc but good for delta if we wanted relative resizing
-                -- Here we assume absolute snapping
+                -- No offset needed for absolute resize tracking
             end
         end
 
         -- 2. Check Drag (Rest of body)
-        if not obj.resizing and click and self:IsMouseOver(obj.pos, obj.size) then
+        if not obj.resizing and click and RCM:IsMouseOver(obj.pos, obj.size) then
             obj.dragging = true
-            obj.dragOffset = vector.create(self.State.MousePos.x - obj.pos.x, self.State.MousePos.y - obj.pos.y, 0)
+            obj.dragOffset = vector.create(RCM.State.MousePos.x - obj.pos.x, RCM.State.MousePos.y - obj.pos.y, 0)
         end
     end
     
     if obj.resizing then
-        if self.State.MouseDown then
-            local rawSize = vector.create(self.State.MousePos.x - obj.pos.x, self.State.MousePos.y - obj.pos.y, 0)
-            obj.size = self:CalculateResizeSnap(obj, rawSize)
-            self.State.InputBusy = true
+        if RCM.State.MouseDown then
+            local rawSize = vector.create(RCM.State.MousePos.x - obj.pos.x, RCM.State.MousePos.y - obj.pos.y, 0)
+            obj.size = RCM:CalculateResizeSnap(obj, rawSize)
+            RCM.State.InputBusy = true
         else
             obj.resizing = false
         end
     elseif obj.dragging then
-        if self.State.MouseDown then
-            local rawPos = vector.create(self.State.MousePos.x - obj.dragOffset.x, self.State.MousePos.y - obj.dragOffset.y, 0)
-            obj.pos = self:CalculateDragSnap(obj, rawPos) 
-            self.State.InputBusy = true
+        if RCM.State.MouseDown then
+            local rawPos = vector.create(RCM.State.MousePos.x - obj.dragOffset.x, RCM.State.MousePos.y - obj.dragOffset.y, 0)
+            obj.pos = RCM:CalculateDragSnap(obj, rawPos) 
+            RCM.State.InputBusy = true
         else
             obj.dragging = false
         end
     end
 
-    -- Draw Resize Handle if applicable
-    if obj.resizable and (obj.dragging or obj.resizing or self:IsMouseOver(obj.pos, obj.size)) then
+    -- Draw Resize Handle
+    if obj.resizable and (obj.dragging or obj.resizing or RCM:IsMouseOver(obj.pos, obj.size)) then
         local p = obj.pos; local s = obj.size; local hs = 10
-        local c = obj.resizing and self.Theme.Accent or self.Theme.ResizeHandle
-        -- Draw triangle at bottom right
+        local c = obj.resizing and RCM.Theme.Accent or RCM.Theme.ResizeHandle
         RCM.Triangle(
             vector.create(p.x + s.x, p.y + s.y, RCM.Layer.Widget+5),
             vector.create(p.x + s.x - hs, p.y + s.y, RCM.Layer.Widget+5),
@@ -360,16 +355,16 @@ local function LibraryWindow(props)
         local totalH = math.max(lY, rY)
         self.size = vector.create(WIN_W, totalH + 10, 0)
 
-        -- Windows are generally fixed width in this lib style, but we apply DragSnap
-        local click = self.State.MouseDown and not self.State.MouseHeld
-        if not self.State.InputBusy and click and self:IsMouseOver(self.pos, self.size) then
-            self.dragging = true; self.dragOffset = vector.create(self.State.MousePos.x - self.pos.x, self.State.MousePos.y - self.pos.y, 0)
+        -- Handle Drag
+        local click = RCM.State.MouseDown and not RCM.State.MouseHeld
+        if not RCM.State.InputBusy and click and RCM:IsMouseOver(self.pos, self.size) then
+            self.dragging = true; self.dragOffset = vector.create(RCM.State.MousePos.x - self.pos.x, RCM.State.MousePos.y - self.pos.y, 0)
         end
         if self.dragging then
-            if self.State.MouseDown then
-                local raw = vector.create(self.State.MousePos.x - self.dragOffset.x, self.State.MousePos.y - self.dragOffset.y, 0)
-                self.pos = self:CalculateDragSnap(self, raw)
-                self.State.InputBusy = true
+            if RCM.State.MouseDown then
+                local raw = vector.create(RCM.State.MousePos.x - self.dragOffset.x, RCM.State.MousePos.y - self.dragOffset.y, 0)
+                self.pos = RCM:CalculateDragSnap(self, raw)
+                RCM.State.InputBusy = true
             else self.dragging = false end
         end
 
@@ -536,7 +531,7 @@ function RCM:CreateWindow(p) local w=LibraryWindow(p); table.insert(self.Windows
 
 -- [ 7 ] INFO & MISC
 function RCM:OpenInfoWindow(title, content)
-    for i, win in ipairs(self.State.InfoWindows) do if win.title == title then table.remove(self.State.InfoWindows, i) break end end
+    for i, win in ipairs(RCM.State.InfoWindows) do if win.title == title then table.remove(RCM.State.InfoWindows, i) break end end
     local processedLines = {}
     if type(content) == "table" then
         for _, item in ipairs(content) do
@@ -547,67 +542,67 @@ function RCM:OpenInfoWindow(title, content)
             end
         end
     end
-    local last = self.State.InfoWindows[#self.State.InfoWindows]
-    local spawn = last and vector.create(last.pos.x+20, last.pos.y+20, 0) or vector.create((self.State.ScreenSize.x/2)-150, (self.State.ScreenSize.y/2)-100, 0)
-    local win = {id=tick()..math.random(), title=title, items=processedLines, pos=spawn, dragging=false, dragOffset=vector.create(0,0,0), size=vector.create(300, 200, 0)} -- Added size for snap logic
-    table.insert(self.State.InfoWindows, win)
+    local last = RCM.State.InfoWindows[#RCM.State.InfoWindows]
+    local spawn = last and vector.create(last.pos.x+20, last.pos.y+20, 0) or vector.create((RCM.State.ScreenSize.x/2)-150, (RCM.State.ScreenSize.y/2)-100, 0)
+    local win = {id=tick()..math.random(), title=title, items=processedLines, pos=spawn, dragging=false, dragOffset=vector.create(0,0,0), size=vector.create(300, 200, 0)} 
+    table.insert(RCM.State.InfoWindows, win)
 end
 
 function RCM:DrawInfoWindows()
-    if not self.State.Enabled then return end
-    for i = #self.State.InfoWindows, 1, -1 do
-        local win = self.State.InfoWindows[i]
+    if not RCM.State.Enabled then return end
+    for i = #RCM.State.InfoWindows, 1, -1 do
+        local win = RCM.State.InfoWindows[i]
         local w, hh, ch = 300, 22, 10
         for _, it in ipairs(win.items) do ch=ch+(it.type=="sep" and 8 or 16) end
         local th = hh + ch
         win.size = vector.create(w, th, 0) 
         
         -- Logic
-        if not self.State.InputBusy or win.dragging then
-            local click = self.State.MouseDown and not self.State.MouseHeld
-            if click and self:IsMouseOver(vector.create(win.pos.x+w-20, win.pos.y+2, 0), vector.create(18,18,0)) then table.remove(self.State.InfoWindows, i); return end
-            if self:IsMouseOver(win.pos, vector.create(w, hh, 0)) and click then win.dragging=true; win.dragOffset=vector.create(self.State.MousePos.x-win.pos.x, self.State.MousePos.y-win.pos.y, 0); table.insert(self.State.InfoWindows, table.remove(self.State.InfoWindows, i)); return end
+        if not RCM.State.InputBusy or win.dragging then
+            local click = RCM.State.MouseDown and not RCM.State.MouseHeld
+            if click and RCM:IsMouseOver(vector.create(win.pos.x+w-20, win.pos.y+2, 0), vector.create(18,18,0)) then table.remove(RCM.State.InfoWindows, i); return end
+            if RCM:IsMouseOver(win.pos, vector.create(w, hh, 0)) and click then win.dragging=true; win.dragOffset=vector.create(RCM.State.MousePos.x-win.pos.x, RCM.State.MousePos.y-win.pos.y, 0); table.insert(RCM.State.InfoWindows, table.remove(RCM.State.InfoWindows, i)); return end
             if click then
                 local cy = win.pos.y + hh + 5
                 for _, item in ipairs(win.items) do
-                    if item.type=="link" and self:IsMouseOver(vector.create(win.pos.x+10,cy,0), vector.create(7*#item.text, 14, 0)) then if item.callback then item.callback() end end
+                    if item.type=="link" and RCM:IsMouseOver(vector.create(win.pos.x+10,cy,0), vector.create(7*#item.text, 14, 0)) then if item.callback then item.callback() end end
                     cy = cy + (item.type=="sep" and 8 or 16)
                 end
             end
         end
         
         if win.dragging then 
-            if self.State.MouseDown then
-                local raw = vector.create(self.State.MousePos.x-win.dragOffset.x, self.State.MousePos.y-win.dragOffset.y, 0)
-                win.pos = self:CalculateDragSnap(win, raw) 
-                self.State.InputBusy=true 
+            if RCM.State.MouseDown then
+                local raw = vector.create(RCM.State.MousePos.x-win.dragOffset.x, RCM.State.MousePos.y-win.dragOffset.y, 0)
+                win.pos = RCM:CalculateDragSnap(win, raw) 
+                RCM.State.InputBusy=true 
             else win.dragging = false end
         end
 
         -- Render
-        RCM.Rect(win.pos, win.size, self.Theme.Border, 1)
-        RCM.Rect(vector.create(win.pos.x+1,win.pos.y+1,RCM.Layer.InfoWin+i), vector.create(w-2, th-2, 0), self.Theme.InfoWinBg, 1)
-        RCM.Rect(win.pos, vector.create(w, 2, 0), self.Theme.Accent, 1)
-        RCM.Label(vector.create(win.pos.x+10, win.pos.y+4, RCM.Layer.InfoWin+i+1), win.title, self.Theme.Text)
-        RCM.Label(vector.create(win.pos.x+w-15, win.pos.y+4, RCM.Layer.InfoWin+i+1), "X", self.Theme.Negative)
+        RCM.Rect(win.pos, win.size, RCM.Theme.Border, 1)
+        RCM.Rect(vector.create(win.pos.x+1,win.pos.y+1,RCM.Layer.InfoWin+i), vector.create(w-2, th-2, 0), RCM.Theme.InfoWinBg, 1)
+        RCM.Rect(win.pos, vector.create(w, 2, 0), RCM.Theme.Accent, 1)
+        RCM.Label(vector.create(win.pos.x+10, win.pos.y+4, RCM.Layer.InfoWin+i+1), win.title, RCM.Theme.Text)
+        RCM.Label(vector.create(win.pos.x+w-15, win.pos.y+4, RCM.Layer.InfoWin+i+1), "X", RCM.Theme.Negative)
         
         local cy = win.pos.y + hh + 5
         for _, item in ipairs(win.items) do
             local z = RCM.Layer.InfoWin+i+1
-            if item.type == "text" then RCM.Label(vector.create(win.pos.x+10, cy, z), item.text, self.Theme.TextDim); cy = cy + 16
+            if item.type == "text" then RCM.Label(vector.create(win.pos.x+10, cy, z), item.text, RCM.Theme.TextDim); cy = cy + 16
             elseif item.type == "link" then 
-                local col = self.Theme.Link; local lw = 7*#item.text
-                if self:IsMouseOver(vector.create(win.pos.x+10, cy, 0), vector.create(lw, 14, 0)) then col = self.Theme.Accent end
+                local col = RCM.Theme.Link; local lw = 7*#item.text
+                if RCM:IsMouseOver(vector.create(win.pos.x+10, cy, 0), vector.create(lw, 14, 0)) then col = RCM.Theme.Accent end
                 RCM.Label(vector.create(win.pos.x+10, cy, z), item.text, col); RCM.Rect(vector.create(win.pos.x+10, cy+13, z), vector.create(lw,1,0), col, 1); cy = cy + 16
-            elseif item.type == "sep" then RCM.Rect(vector.create(win.pos.x+10, cy+3, z), vector.create(w-20,1,0), self.Theme.Border, 0.5); cy = cy + 8 end
+            elseif item.type == "sep" then RCM.Rect(vector.create(win.pos.x+10, cy+3, z), vector.create(w-20,1,0), RCM.Theme.Border, 0.5); cy = cy + 8 end
         end
     end
 end
 
 function RCM:DrawStandardInterface()
-    if self.State.Watermark.Visible then
-        local p, t = self.State.Watermark.Pos, self.State.Watermark.Text
-        if self.State.Watermark.Extra then 
+    if RCM.State.Watermark.Visible then
+        local p, t = RCM.State.Watermark.Pos, RCM.State.Watermark.Text
+        if RCM.State.Watermark.Extra then 
             local plrName = "Unknown"
             if game and game:GetService("Players") and game:GetService("Players").LocalPlayer then
                 plrName = game:GetService("Players").LocalPlayer.Name
@@ -615,57 +610,57 @@ function RCM:DrawStandardInterface()
             t = t .. " | User: " .. plrName 
         end
         local sz = vector.create((7*#t)+20, 22, 0)
-        if self.State.Enabled and not self.State.InputBusy then
-            if self.State.MouseDown and not self.State.MouseHeld and self:IsMouseOver(p, sz) then self.State.Watermark.Dragging = true; self.State.Watermark.Offset = vector.create(self.State.MousePos.x-p.x, self.State.MousePos.y-p.y, 0) end
-            if self.State.Watermark.Dragging then
-                if self.State.MouseDown then
-                    local raw = vector.create(self.State.MousePos.x-self.State.Watermark.Offset.x, self.State.MousePos.y-self.State.Watermark.Offset.y, 0)
+        if RCM.State.Enabled and not RCM.State.InputBusy then
+            if RCM.State.MouseDown and not RCM.State.MouseHeld and RCM:IsMouseOver(p, sz) then RCM.State.Watermark.Dragging = true; RCM.State.Watermark.Offset = vector.create(RCM.State.MousePos.x-p.x, RCM.State.MousePos.y-p.y, 0) end
+            if RCM.State.Watermark.Dragging then
+                if RCM.State.MouseDown then
+                    local raw = vector.create(RCM.State.MousePos.x-RCM.State.Watermark.Offset.x, RCM.State.MousePos.y-RCM.State.Watermark.Offset.y, 0)
                     local dummy = { pos=raw, size=sz } 
-                    p = self:CalculateDragSnap(dummy, raw); self.State.Watermark.Pos = p
-                    self.State.InputBusy = true
-                else self.State.Watermark.Dragging = false end
+                    p = RCM:CalculateDragSnap(dummy, raw); RCM.State.Watermark.Pos = p
+                    RCM.State.InputBusy = true
+                else RCM.State.Watermark.Dragging = false end
             end
         end
-        RCM.Rect(p, sz, self.Theme.Border, 1); RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(sz.x-2,sz.y-2,0), self.Theme.Background, 1)
-        RCM.Rect(p, vector.create(sz.x,2,0), self.Theme.Accent, 1); RCM.Label(vector.create(p.x+10,p.y+4,3), t, self.Theme.Text)
+        RCM.Rect(p, sz, RCM.Theme.Border, 1); RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(sz.x-2,sz.y-2,0), RCM.Theme.Background, 1)
+        RCM.Rect(p, vector.create(sz.x,2,0), RCM.Theme.Accent, 1); RCM.Label(vector.create(p.x+10,p.y+4,3), t, RCM.Theme.Text)
     end
     
     local startY = 50
-    for i=#self.Notifications, 1, -1 do
-        local n = self.Notifications[i]; local el = tick()-n.start; local rem = n.duration-el
-        if rem <= 0 then table.remove(self.Notifications, i) else
-            local bw = (7*#n.text)+20; local px = self.State.ScreenSize.x - bw - 20
-            RCM.Rect(vector.create(px,startY,200), vector.create(bw,26,0), self.Theme.Border, 1)
-            RCM.Rect(vector.create(px+1,startY+1,200), vector.create(bw-2,24,0), self.Theme.Background, 1)
+    for i=#RCM.Notifications, 1, -1 do
+        local n = RCM.Notifications[i]; local el = tick()-n.start; local rem = n.duration-el
+        if rem <= 0 then table.remove(RCM.Notifications, i) else
+            local bw = (7*#n.text)+20; local px = RCM.State.ScreenSize.x - bw - 20
+            RCM.Rect(vector.create(px,startY,200), vector.create(bw,26,0), RCM.Theme.Border, 1)
+            RCM.Rect(vector.create(px+1,startY+1,200), vector.create(bw-2,24,0), RCM.Theme.Background, 1)
             RCM.Label(vector.create(px+10,startY+5,200), n.text, RCM.Theme.Text)
             RCM.Rect(vector.create(px+1,startY+23,200), vector.create((bw-2)*(rem/n.duration),2,0), RCM.Theme.Accent, 1)
             startY = startY + 35
         end
     end
 
-    if self.State.KeybindList.Visible and self.State.Enabled then
+    if RCM.State.KeybindList.Visible and RCM.State.Enabled then
         local itemsToShow = {}
-        for _, bind in ipairs(RCM.Binders) do if self.State.KeybindList.Mode == "Always" or (self.State.KeybindList.Mode == "Active" and bind.active) then table.insert(itemsToShow, bind) end end
+        for _, bind in ipairs(RCM.Binders) do if RCM.State.KeybindList.Mode == "Always" or (RCM.State.KeybindList.Mode == "Active" and bind.active) then table.insert(itemsToShow, bind) end end
         if #itemsToShow > 0 then
-            local p = self.State.KeybindList.Pos; local mw = 130; for _, b in ipairs(itemsToShow) do local tw = (7*#b.name)+(7*#b.key)+50; if tw>mw then mw=tw end end
+            local p = RCM.State.KeybindList.Pos; local mw = 130; for _, b in ipairs(itemsToShow) do local tw = (7*#b.name)+(7*#b.key)+50; if tw>mw then mw=tw end end
             local th = 24 + (#itemsToShow * 18) + 4
             local sz = vector.create(mw, th, 0)
-            if not self.State.InputBusy and self.State.MouseDown and not self.State.MouseHeld and self:IsMouseOver(p, vector.create(mw, 24, 0)) then self.State.KeybindList.Dragging=true; self.State.KeybindList.Offset = vector.create(self.State.MousePos.x-p.x, self.State.MousePos.y-p.y, 0) end
-            if self.State.KeybindList.Dragging then 
-                if self.State.MouseDown then
-                    local raw = vector.create(self.State.MousePos.x-self.State.KeybindList.Offset.x, self.State.MousePos.y-self.State.KeybindList.Offset.y, 0)
+            if not RCM.State.InputBusy and RCM.State.MouseDown and not RCM.State.MouseHeld and RCM:IsMouseOver(p, vector.create(mw, 24, 0)) then RCM.State.KeybindList.Dragging=true; RCM.State.KeybindList.Offset = vector.create(RCM.State.MousePos.x-p.x, RCM.State.MousePos.y-p.y, 0) end
+            if RCM.State.KeybindList.Dragging then 
+                if RCM.State.MouseDown then
+                    local raw = vector.create(RCM.State.MousePos.x-RCM.State.KeybindList.Offset.x, RCM.State.MousePos.y-RCM.State.KeybindList.Offset.y, 0)
                     local dummy = { pos=raw, size=sz }
-                    self.State.KeybindList.Pos = self:CalculateDragSnap(dummy, raw)
-                    p=self.State.KeybindList.Pos; self.State.InputBusy=true 
-                else self.State.KeybindList.Dragging=false end
+                    RCM.State.KeybindList.Pos = RCM:CalculateDragSnap(dummy, raw)
+                    p=RCM.State.KeybindList.Pos; RCM.State.InputBusy=true 
+                else RCM.State.KeybindList.Dragging=false end
             end
-            RCM.Rect(p, sz, self.Theme.Border, 1); RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(mw-2, th-2, 0), self.Theme.Background, 1)
-            RCM.Rect(p, vector.create(mw, 2, 0), self.Theme.Accent, 1); RCM.Label(vector.create(p.x+(mw/2)-20, p.y+5, 3), "Keybinds", self.Theme.Text)
+            RCM.Rect(p, sz, RCM.Theme.Border, 1); RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(mw-2, th-2, 0), RCM.Theme.Background, 1)
+            RCM.Rect(p, vector.create(mw, 2, 0), RCM.Theme.Accent, 1); RCM.Label(vector.create(p.x+(mw/2)-20, p.y+5, 3), "Keybinds", RCM.Theme.Text)
             local ky = p.y + 26
             for _, b in ipairs(itemsToShow) do
                 local kt = "["..b.key.."]"; local mt = (b.mode=="Hold" and "[H]") or (b.mode=="Toggle" and "[T]") or "[A]"
-                RCM.Label(vector.create(p.x+5, ky, 3), b.name, self.Theme.Text)
-                RCM.Label(vector.create(p.x+mw-(7*#kt)-(7*#mt)-10, ky, 3), kt..mt, b.active and self.Theme.Accent or self.Theme.TextDim)
+                RCM.Label(vector.create(p.x+5, ky, 3), b.name, RCM.Theme.Text)
+                RCM.Label(vector.create(p.x+mw-(7*#kt)-(7*#mt)-10, ky, 3), kt..mt, b.active and RCM.Theme.Accent or RCM.Theme.TextDim)
                 ky = ky + 18
             end
         end
@@ -673,20 +668,20 @@ function RCM:DrawStandardInterface()
 end
 
 function RCM:DrawPopup()
-    if not self.State.ActivePopup then return end
-    local p = self.State.ActivePopup; local bind = p.BindItem; local pos = p.Pos
+    if not RCM.State.ActivePopup then return end
+    local p = RCM.State.ActivePopup; local bind = p.BindItem; local pos = p.Pos
     local opts = {"Hold", "Toggle", "Always"}; local w, h = 80, (#opts*20)+4
-    RCM.Rect(pos, vector.create(w, h, 20), self.Theme.Border, 1)
-    RCM.Rect(vector.create(pos.x+1, pos.y+1, 20), vector.create(w-2, h-2, 0), self.Theme.Background, 1)
+    RCM.Rect(pos, vector.create(w, h, 20), RCM.Theme.Border, 1)
+    RCM.Rect(vector.create(pos.x+1, pos.y+1, 20), vector.create(w-2, h-2, 0), RCM.Theme.Background, 1)
     local cy = pos.y + 2
     for _, m in ipairs(opts) do
         local op = vector.create(pos.x+2, cy, 20); local os = vector.create(w-4, 18, 0)
-        local hov = self:IsMouseOver(op, os)
+        local hov = RCM:IsMouseOver(op, os)
         if hov then
-            RCM.Rect(op, os, self.Theme.Accent, 0.8)
-            if self.State.MouseDown and not self.State.MouseHeld then bind.mode = m; self.State.ActivePopup = nil; return end
+            RCM.Rect(op, os, RCM.Theme.Accent, 0.8)
+            if RCM.State.MouseDown and not RCM.State.MouseHeld then bind.mode = m; RCM.State.ActivePopup = nil; return end
         end
-        RCM.Label(vector.create(pos.x+5, cy+2, 21), m, (bind.mode==m or hov) and self.Theme.Text or self.Theme.TextDim)
+        RCM.Label(vector.create(pos.x+5, cy+2, 21), m, (bind.mode==m or hov) and RCM.Theme.Text or RCM.Theme.TextDim)
         cy = cy + 20
     end
 end
@@ -694,22 +689,22 @@ end
 function RCM:Init()
     local ren = RunService.Render or game:GetService("RunService").RenderStepped
     ren:Connect(function()
-        self.State.InputBusy = false
-        self.State.ActiveTooltip = nil 
+        RCM.State.InputBusy = false
+        RCM.State.ActiveTooltip = nil 
         
-        self:UpdateInput()
-        self:UpdateBinders()
+        RCM:UpdateInput()
+        RCM:UpdateBinders()
         
-        self:DrawStandardInterface()
-        for _, w in ipairs(self.Windows) do w:Draw() end
-        self:HandleDraggableWidgets() 
+        RCM:DrawStandardInterface()
+        for _, w in ipairs(RCM.Windows) do w:Draw() end
+        RCM:HandleDraggableWidgets() 
         
-        self:DrawInfoWindows()
-        self:DrawPopup()
-        self:DrawSnapLines()
+        RCM:DrawInfoWindows()
+        RCM:DrawPopup()
+        RCM:DrawSnapLines()
         
-        if self.State.ActiveTooltip and not self.State.ActivePopup and self.State.Enabled then
-            local t, m = self.State.ActiveTooltip, self.State.MousePos
+        if RCM.State.ActiveTooltip and not RCM.State.ActivePopup and RCM.State.Enabled then
+            local t, m = RCM.State.ActiveTooltip, RCM.State.MousePos
             local w = (8*#t)+12
             RCM.Rect(vector.create(m.x+12,m.y+12,RCM.Layer.Tooltip), vector.create(w,20,0), RCM.Theme.Border, 1)
             RCM.Rect(vector.create(m.x+13,m.y+13,RCM.Layer.Tooltip), vector.create(w-2,18,0), RCM.Theme.TooltipBg, 1)
@@ -719,8 +714,8 @@ function RCM:Init()
 end
 
 function RCM:HandleDraggableWidgets()
-    for _, wid in ipairs(self.Widgets) do
-        self:HandleDraggable(wid)
+    for _, wid in ipairs(RCM.Widgets) do
+        RCM:HandleDraggable(wid)
         wid.draw()
     end
 end
