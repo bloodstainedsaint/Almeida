@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v9.2 (Widget Snapping)
--- Features: Modular Host, Edge Snapping, Widget-to-Widget Snapping
--- Update: Objects now snap to each other's edges and centers.
+-- [ RCM ] Severe UI Library v9.3 (Resizing & Snapping)
+-- Features: Modular Host, Widget-to-Widget Snapping, Resizable Widgets
+-- Update: Added Resize handle logic with edge snapping support.
 
 local RCM = {}
 
-print("[RCM] Library Initialized v9.2 Core")
+print("[RCM] Library Initialized v9.3 Core")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -21,7 +21,8 @@ RCM.Theme = {
     InfoWinBg  = Color3.new(0.1, 0.1, 0.1),
     Link       = Color3.new(0.4, 0.6, 1),
     Section    = Color3.new(0.25, 0.25, 0.25),
-    Negative   = Color3.new(1, 0.3, 0.3)
+    Negative   = Color3.new(1, 0.3, 0.3),
+    ResizeHandle = Color3.new(0.3, 0.3, 0.3)
 }
 
 RCM.Layer = { Base=0, Section=1, Item=2, Text=3, Widget=10, Popup=20, InfoWin=100, Snap=150, Notif=200, Tooltip=300 }
@@ -54,6 +55,7 @@ RCM.Flags = {}
 function RCM.Rect(pos, size, color, alpha) DrawingImmediate.FilledRectangle(pos, size, color, alpha or 1) end
 function RCM.Label(pos, text, color, center) DrawingImmediate.Text(pos, 13, color, 1, text, center or false, "Proggy") end
 function RCM.Line(a, b, color, alpha, thickness) DrawingImmediate.Line(a, b, color, alpha, 1, thickness or 1) end
+function RCM.Triangle(a, b, c, color, alpha) DrawingImmediate.FilledTriangle(a, b, c, color, alpha or 1) end
 
 local function FitText(text, maxWidth)
     local charWidth = 7 
@@ -86,7 +88,7 @@ function RCM:UpdateInput()
         self.State.Watermark.Dragging = false; self.State.KeybindList.Dragging = false
         for _, win in ipairs(self.State.InfoWindows) do win.dragging = false end
         for _, win in ipairs(RCM.Windows) do win.dragging = false end
-        for _, wid in ipairs(RCM.Widgets) do wid.dragging = false end
+        for _, wid in ipairs(RCM.Widgets) do wid.dragging = false; wid.resizing = false end
         self.State.Snapping.ActiveLines = {} 
     end
 
@@ -147,93 +149,107 @@ function RCM:SetWatermark(text) self.State.Watermark.Text = text end
 function RCM:Notify(msg, duration) table.insert(self.Notifications, {id = tick()..math.random(), text = msg, duration = duration or 3, start = tick(), alpha = 0}) end
 
 -- ============================================================================
--- [ 5 ] ADVANCED SNAPPING SYSTEM (V9.2)
+-- [ 5 ] SNAPPING & RESIZING SYSTEM
 -- ============================================================================
--- Now includes Widget-to-Widget snapping logic
-function RCM:CalculateSnap(currentObj, rawPos)
-    local snapPos = rawPos
-    local objSize = currentObj.size or vector.create(0,0,0)
-    local screen = self.State.ScreenSize
-    local threshold = 15 
-    local lockDist = 8   
-    
-    self.State.Snapping.ActiveLines = {} 
 
-    -- 1. Gather all Snap Targets (Screen + Other Objects)
+-- Helper: Get snap targets from all other visible objects
+function RCM:GetSnapTargets(currentObj)
+    local screen = self.State.ScreenSize
     local targetsX = { 0, screen.x / 2, screen.x } 
     local targetsY = { 0, screen.y / 2, screen.y } 
     
-    local function AddTargets(other)
+    local function Add(other)
         if other == currentObj then return end
         if not other.pos or not other.size then return end
-        -- Edges and Center of other object
         table.insert(targetsX, other.pos.x)
         table.insert(targetsX, other.pos.x + other.size.x)
-        table.insert(targetsX, other.pos.x + (other.size.x / 2))
-        
         table.insert(targetsY, other.pos.y)
         table.insert(targetsY, other.pos.y + other.size.y)
-        table.insert(targetsY, other.pos.y + (other.size.y / 2))
     end
 
-    -- Add Windows
-    for _, w in ipairs(self.Windows) do AddTargets(w) end
-    -- Add Widgets
-    for _, w in ipairs(self.Widgets) do AddTargets(w) end
-    -- Add Watermark
+    for _, w in ipairs(self.Windows) do Add(w) end
+    for _, w in ipairs(self.Widgets) do Add(w) end
     if self.State.Watermark.Visible then
         local w = self.State.Watermark; local t = w.Text; if w.Extra then t=t.."..." end
-        local sz = vector.create((7*#t)+20, 22, 0)
-        -- Create dummy object for calc
-        AddTargets({pos=w.Pos, size=sz}) 
+        Add({pos=w.Pos, size=vector.create((7*#t)+20, 22, 0)}) 
     end
+    return targetsX, targetsY
+end
 
-    -- 2. Define Object Anchors (Edges/Center of the object being dragged)
+-- Logic for DRAGGING (Moves Position)
+function RCM:CalculateDragSnap(currentObj, rawPos)
+    local snapPos = rawPos
+    local objSize = currentObj.size or vector.create(0,0,0)
+    local targetsX, targetsY = self:GetSnapTargets(currentObj)
+    local screen = self.State.ScreenSize
+    local threshold, lockDist = 15, 8
+    
+    self.State.Snapping.ActiveLines = {} -- Reset lines
+
     local anchorsX = { 0, objSize.x / 2, objSize.x }
     local anchorsY = { 0, objSize.y / 2, objSize.y }
 
-    -- 3. Check Axis Logic
-    local function CheckAxis(currentVal, anchors, targets, isX)
-        local bestSnap = nil
-        local minDiff = threshold
-        
-        for _, anchorOffset in ipairs(anchors) do
-            local point = currentVal + anchorOffset
-            for _, target in ipairs(targets) do
-                local diff = math.abs(point - target)
-                
+    local function CheckAxis(val, anchors, targets, isX)
+        local best = nil; local minD = threshold
+        for _, off in ipairs(anchors) do
+            local pt = val + off
+            for _, t in ipairs(targets) do
+                local diff = math.abs(pt - t)
                 if diff < threshold then
                     local alpha = 1 - (diff / threshold)
-                    
-                    -- Visual Lines (Dynamic Length based on contact?)
-                    -- For now, full screen lines for clarity
-                    local lineStart, lineEnd
-                    if isX then
-                        lineStart = vector.create(target, 0, RCM.Layer.Snap)
-                        lineEnd = vector.create(target, screen.y, 0)
-                    else
-                        lineStart = vector.create(0, target, RCM.Layer.Snap)
-                        lineEnd = vector.create(screen.x, target, 0)
-                    end
-                    table.insert(self.State.Snapping.ActiveLines, { A = lineStart, B = lineEnd, Alpha = alpha })
-                    
-                    if diff < lockDist and diff < minDiff then
-                        minDiff = diff
-                        bestSnap = target - anchorOffset
-                    end
+                    local ls, le
+                    if isX then ls=vector.create(t,0,RCM.Layer.Snap); le=vector.create(t,screen.y,0)
+                    else ls=vector.create(0,t,RCM.Layer.Snap); le=vector.create(screen.x,t,0) end
+                    table.insert(self.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
+                    if diff < lockDist and diff < minD then minD = diff; best = t - off end
                 end
             end
         end
-        return bestSnap or currentVal
+        return best or val
     end
 
-    snapPos = vector.create(
-        CheckAxis(rawPos.x, anchorsX, targetsX, true),
-        CheckAxis(rawPos.y, anchorsY, targetsY, false),
+    return vector.create(CheckAxis(rawPos.x, anchorsX, targetsX, true), CheckAxis(rawPos.y, anchorsY, targetsY, false), 0)
+end
+
+-- Logic for RESIZING (Changes Size, Anchored Top-Left)
+function RCM:CalculateResizeSnap(currentObj, rawSize)
+    local snapSize = rawSize
+    local pos = currentObj.pos
+    local targetsX, targetsY = self:GetSnapTargets(currentObj)
+    local screen = self.State.ScreenSize
+    local threshold, lockDist = 15, 8
+    
+    self.State.Snapping.ActiveLines = {}
+
+    -- Only check the Bottom-Right corner against targets
+    local function CheckAxis(currentSizeVal, posVal, targets, isX)
+        local edge = posVal + currentSizeVal -- Bottom or Right edge
+        local best = nil; local minD = threshold
+        
+        for _, t in ipairs(targets) do
+            local diff = math.abs(edge - t)
+            if diff < threshold then
+                local alpha = 1 - (diff / threshold)
+                local ls, le
+                if isX then ls=vector.create(t,0,RCM.Layer.Snap); le=vector.create(t,screen.y,0)
+                else ls=vector.create(0,t,RCM.Layer.Snap); le=vector.create(screen.x,t,0) end
+                table.insert(self.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
+                
+                if diff < lockDist and diff < minD then
+                    minD = diff
+                    best = t - posVal -- New size is (Target - StartPos)
+                end
+            end
+        end
+        return best or currentSizeVal
+    end
+
+    snapSize = vector.create(
+        math.max(CheckAxis(rawSize.x, pos.x, targetsX, true), currentObj.minSize.x),
+        math.max(CheckAxis(rawSize.y, pos.y, targetsY, false), currentObj.minSize.y),
         0
     )
-    
-    return snapPos
+    return snapSize
 end
 
 function RCM:DrawSnapLines()
@@ -253,8 +269,10 @@ function RCM:CreateWidget(props)
         name = props.Name or "Widget",
         pos = props.Position or vector.create(100, 100, 0),
         size = props.Size or vector.create(100, 100, 0),
+        minSize = props.MinSize or vector.create(50, 30, 0), -- Prevent inversion
+        resizable = (props.Resizable == nil and true) or props.Resizable, -- Default true
         draw = props.Draw, 
-        dragging = false,
+        dragging = false, resizing = false,
         dragOffset = vector.create(0,0,0)
     }
     table.insert(self.Widgets, widget)
@@ -265,21 +283,54 @@ function RCM:HandleDraggable(obj)
     local click = self.State.MouseDown and not self.State.MouseHeld
     
     if not self.State.InputBusy then
-        if click and self:IsMouseOver(obj.pos, obj.size) then
+        -- 1. Check Resize (Bottom Right Corner)
+        if obj.resizable then
+            local resizeHandleSize = 15
+            local handlePos = vector.create(obj.pos.x + obj.size.x - resizeHandleSize, obj.pos.y + obj.size.y - resizeHandleSize, 0)
+            
+            if click and self:IsMouseOver(handlePos, vector.create(resizeHandleSize, resizeHandleSize, 0)) then
+                obj.resizing = true
+                -- Offset isn't strictly needed for resize calc but good for delta if we wanted relative resizing
+                -- Here we assume absolute snapping
+            end
+        end
+
+        -- 2. Check Drag (Rest of body)
+        if not obj.resizing and click and self:IsMouseOver(obj.pos, obj.size) then
             obj.dragging = true
             obj.dragOffset = vector.create(self.State.MousePos.x - obj.pos.x, self.State.MousePos.y - obj.pos.y, 0)
         end
     end
     
-    if obj.dragging then
+    if obj.resizing then
+        if self.State.MouseDown then
+            local rawSize = vector.create(self.State.MousePos.x - obj.pos.x, self.State.MousePos.y - obj.pos.y, 0)
+            obj.size = self:CalculateResizeSnap(obj, rawSize)
+            self.State.InputBusy = true
+        else
+            obj.resizing = false
+        end
+    elseif obj.dragging then
         if self.State.MouseDown then
             local rawPos = vector.create(self.State.MousePos.x - obj.dragOffset.x, self.State.MousePos.y - obj.dragOffset.y, 0)
-            -- Apply v9.2 Snapping
-            obj.pos = self:CalculateSnap(obj, rawPos) 
+            obj.pos = self:CalculateDragSnap(obj, rawPos) 
             self.State.InputBusy = true
         else
             obj.dragging = false
         end
+    end
+
+    -- Draw Resize Handle if applicable
+    if obj.resizable and (obj.dragging or obj.resizing or self:IsMouseOver(obj.pos, obj.size)) then
+        local p = obj.pos; local s = obj.size; local hs = 10
+        local c = obj.resizing and self.Theme.Accent or self.Theme.ResizeHandle
+        -- Draw triangle at bottom right
+        RCM.Triangle(
+            vector.create(p.x + s.x, p.y + s.y, RCM.Layer.Widget+5),
+            vector.create(p.x + s.x - hs, p.y + s.y, RCM.Layer.Widget+5),
+            vector.create(p.x + s.x, p.y + s.y - hs, RCM.Layer.Widget+5),
+            c, 1
+        )
     end
 end
 
@@ -309,10 +360,20 @@ local function LibraryWindow(props)
         local totalH = math.max(lY, rY)
         self.size = vector.create(WIN_W, totalH + 10, 0)
 
-        RCM:HandleDraggable(self)
+        -- Windows are generally fixed width in this lib style, but we apply DragSnap
+        local click = self.State.MouseDown and not self.State.MouseHeld
+        if not self.State.InputBusy and click and self:IsMouseOver(self.pos, self.size) then
+            self.dragging = true; self.dragOffset = vector.create(self.State.MousePos.x - self.pos.x, self.State.MousePos.y - self.pos.y, 0)
+        end
+        if self.dragging then
+            if self.State.MouseDown then
+                local raw = vector.create(self.State.MousePos.x - self.dragOffset.x, self.State.MousePos.y - self.dragOffset.y, 0)
+                self.pos = self:CalculateDragSnap(self, raw)
+                self.State.InputBusy = true
+            else self.dragging = false end
+        end
 
         local x, y = self.pos.x, self.pos.y
-        local click = RCM.State.MouseDown and not RCM.State.MouseHeld
         if RCM.State.InputBusy and not self.dragging then click = false end
 
         RCM.Rect(vector.create(x,y,0), self.size, RCM.Theme.Border, 1)
@@ -518,7 +579,7 @@ function RCM:DrawInfoWindows()
         if win.dragging then 
             if self.State.MouseDown then
                 local raw = vector.create(self.State.MousePos.x-win.dragOffset.x, self.State.MousePos.y-win.dragOffset.y, 0)
-                win.pos = self:CalculateSnap(win, raw) 
+                win.pos = self:CalculateDragSnap(win, raw) 
                 self.State.InputBusy=true 
             else win.dragging = false end
         end
@@ -559,9 +620,8 @@ function RCM:DrawStandardInterface()
             if self.State.Watermark.Dragging then
                 if self.State.MouseDown then
                     local raw = vector.create(self.State.MousePos.x-self.State.Watermark.Offset.x, self.State.MousePos.y-self.State.Watermark.Offset.y, 0)
-                    -- Dummy Object for Watermark to snap to others
                     local dummy = { pos=raw, size=sz } 
-                    p = self:CalculateSnap(dummy, raw); self.State.Watermark.Pos = p
+                    p = self:CalculateDragSnap(dummy, raw); self.State.Watermark.Pos = p
                     self.State.InputBusy = true
                 else self.State.Watermark.Dragging = false end
             end
@@ -594,9 +654,8 @@ function RCM:DrawStandardInterface()
             if self.State.KeybindList.Dragging then 
                 if self.State.MouseDown then
                     local raw = vector.create(self.State.MousePos.x-self.State.KeybindList.Offset.x, self.State.MousePos.y-self.State.KeybindList.Offset.y, 0)
-                    -- Dummy object for Keybind list
                     local dummy = { pos=raw, size=sz }
-                    self.State.KeybindList.Pos = self:CalculateSnap(dummy, raw)
+                    self.State.KeybindList.Pos = self:CalculateDragSnap(dummy, raw)
                     p=self.State.KeybindList.Pos; self.State.InputBusy=true 
                 else self.State.KeybindList.Dragging=false end
             end
