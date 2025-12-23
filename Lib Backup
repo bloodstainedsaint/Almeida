@@ -1,12 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v9.5 (Stable)
+-- [ RCM ] Severe UI Library v9.6 (Stable)
 -- Features: Modular Host, Widget Snapping, Resizing
--- Fixed: Interaction locked when menu closed.
--- Update: Resize handle is now an "L" bracket.
+-- Update: Resize Brackets are now thicker and more visible.
 
 local RCM = {}
 
-print("[RCM] Library Initialized v9.5 Stable")
+print("[RCM] Library Initialized v9.6 Stable")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -23,7 +22,7 @@ RCM.Theme = {
     Link       = Color3.new(0.4, 0.6, 1),
     Section    = Color3.new(0.25, 0.25, 0.25),
     Negative   = Color3.new(1, 0.3, 0.3),
-    ResizeHandle = Color3.new(0.4, 0.4, 0.4) -- Slightly brighter for visibility
+    ResizeHandle = Color3.new(0.5, 0.5, 0.5) -- Made slightly brighter by default
 }
 
 RCM.Layer = { Base=0, Section=1, Item=2, Text=3, Widget=10, Popup=20, InfoWin=100, Snap=150, Notif=200, Tooltip=300 }
@@ -56,6 +55,7 @@ RCM.Flags = {}
 function RCM.Rect(pos, size, color, alpha) DrawingImmediate.FilledRectangle(pos, size, color, alpha or 1) end
 function RCM.Label(pos, text, color, center) DrawingImmediate.Text(pos, 13, color, 1, text, center or false, "Proggy") end
 function RCM.Line(a, b, color, alpha, thickness) DrawingImmediate.Line(a, b, color, alpha, 1, thickness or 1) end
+function RCM.Triangle(a, b, c, color, alpha) DrawingImmediate.FilledTriangle(a, b, c, color, alpha or 1) end
 
 local function FitText(text, maxWidth)
     local charWidth = 7 
@@ -231,7 +231,10 @@ function RCM:CalculateResizeSnap(currentObj, rawSize)
                 else ls=vector.create(0,t,RCM.Layer.Snap); le=vector.create(screen.x,t,0) end
                 table.insert(RCM.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
                 
-                if diff < lockDist and diff < minD then minD = diff; best = t - posVal end
+                if diff < lockDist and diff < minD then
+                    minD = diff
+                    best = t - posVal
+                end
             end
         end
         return best or currentSizeVal
@@ -318,16 +321,17 @@ function RCM:HandleDraggable(obj)
         end
     end
 
-    -- [ FIX ] Draw "L" Bracket for Resize Handle (Only if enabled)
+    -- [ FIX ] Draw THICKER "L" Bracket for Resize Handle
     if obj.resizable and RCM.State.Enabled then
-        local p = obj.pos; local s = obj.size; local hs = 10
+        local p = obj.pos; local s = obj.size; local hs = 12 -- Handle Size increased to 12
         local c = (obj.resizing or RCM:IsMouseOver(vector.create(p.x+s.x-15, p.y+s.y-15, 0), vector.create(15,15,0))) and RCM.Theme.Accent or RCM.Theme.ResizeHandle
         local z = RCM.Layer.Widget+5
+        local thick = 3 -- Thickness increased to 3
         
         -- Horizontal Line
-        RCM.Line(vector.create(p.x+s.x, p.y+s.y, z), vector.create(p.x+s.x-hs, p.y+s.y, z), c, 1, 2)
+        RCM.Line(vector.create(p.x+s.x, p.y+s.y, z), vector.create(p.x+s.x-hs, p.y+s.y, z), c, 1, thick)
         -- Vertical Line
-        RCM.Line(vector.create(p.x+s.x, p.y+s.y, z), vector.create(p.x+s.x, p.y+s.y-hs, z), c, 1, 2)
+        RCM.Line(vector.create(p.x+s.x, p.y+s.y, z), vector.create(p.x+s.x, p.y+s.y-hs, z), c, 1, thick)
     end
 end
 
