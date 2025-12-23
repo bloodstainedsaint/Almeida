@@ -1,7 +1,7 @@
---[ RCM Library v11.7 | Added: Pinning System ]--
+--[ RCM Library v11.8 | Keybinds as Widget Refactor ]--
 local RCM = {}
 
-print("[RCM] Library Initialized v11.7 Stable")
+print("[RCM] Library Initialized v11.8 Stable")
 
 -- [ Configuration & Theme ]
 RCM.Theme = {
@@ -37,9 +37,9 @@ RCM.State = {
     ToggleKey = "Delete", LastToggle = 0,
     ActiveTooltip = nil, ActivePopup = nil, 
     ScreenSize = vector.create(1920, 1080, 0),
-    -- Added 'Pinned' to Watermark and KeybindList
     Watermark = { Visible = true, Text = "Severe UI", Extra = true, Pos = vector.create(60, 60, 0), Dragging = false, Offset = vector.create(0,0,0), Pinned = true },
-    KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(60, 110, 0), Dragging = false, Offset = vector.create(0,0,0), Pinned = false },
+    -- KeybindList Config (Visual settings only now, logic moved to Widget)
+    KeybindSettings = { Mode = "Always" },
     InfoWindows = {},
     InputBusy = false,
     Snapping = { ActiveLines = {} },
@@ -95,7 +95,7 @@ function RCM:UpdateInput()
     elseif lDown and RCM.State.MouseDown then RCM.State.MouseHeld = true
     elseif not lDown then
         RCM.State.MouseDown = false; RCM.State.MouseHeld = false
-        RCM.State.Watermark.Dragging = false; RCM.State.KeybindList.Dragging = false
+        RCM.State.Watermark.Dragging = false
         for _, win in ipairs(RCM.State.InfoWindows) do win.dragging = false end
         for _, win in ipairs(RCM.Windows) do win.dragging = false end
         for _, wid in ipairs(RCM.Widgets) do wid.dragging = false; wid.resizing = false end
@@ -109,8 +109,6 @@ function RCM:UpdateInput()
 
     if RCM.State.MouseDown and not RCM.State.MouseHeld and RCM.State.ActivePopup then
         local p = RCM.State.ActivePopup
-        local size = (p.Obj and p.Obj.size) or vector.create(130, 0, 0) -- Approx popup size
-        -- Need to fix size check for popup logic
         if not RCM:IsMouseOver(p.Pos, vector.create(130, 100, 0)) then RCM.State.ActivePopup = nil end
     end
 
@@ -260,7 +258,7 @@ function RCM:CreateWidget(props)
         draw = props.Draw, 
         dragging = false, resizing = false,
         dragOffset = vector.create(0,0,0),
-        pinned = false -- Default not pinned
+        pinned = false 
     }
     table.insert(RCM.Widgets, widget)
     return widget
@@ -282,6 +280,7 @@ function RCM:HandleDraggable(obj, ignoreEditMode, dragSize)
             -- Detect type based on object structure
             local t = "Widget"
             if obj.pages then t = "Window" end
+            -- Check if this widget is the keybind list (handled internally now)
             RCM.State.ActivePopup = { Type = t, Obj = obj, Pos = RCM.State.MousePos } 
         end
         
@@ -317,7 +316,7 @@ function RCM:HandleDraggable(obj, ignoreEditMode, dragSize)
 end
 
 function RCM:DrawStandardInterface()
-    -- VISIBILITY: Enabled OR Pinned
+    -- Watermark
     if RCM.State.Watermark.Visible and (RCM.State.Enabled or RCM.State.Watermark.Pinned) then
         local p, t = RCM.State.Watermark.Pos, RCM.State.Watermark.Text
         if RCM.State.Watermark.Extra then 
@@ -327,7 +326,6 @@ function RCM:DrawStandardInterface()
         end
         local sz = vector.create((7*#t)+20, 24, 0)
         
-        -- Right click interaction for Watermark
         if RCM.State.EditMode and RCM:IsMouseOver(p, sz) then
             if RCM.State.RightMouseDown and not RCM.State.RightMouseHeld then
                 RCM.State.ActivePopup = { Type = "Element", Obj = RCM.State.Watermark, Pos = RCM.State.MousePos, Name = "Watermark" }
@@ -350,6 +348,7 @@ function RCM:DrawStandardInterface()
         RCM.Rect(p, vector.create(2,sz.y,0), RCM.Theme.Accent, 1); RCM.Label(vector.create(p.x+10,p.y+5,3), t, RCM.Theme.Text)
     end
     
+    -- Notifications
     local startY = 60
     for i=#RCM.Notifications, 1, -1 do
         local n = RCM.Notifications[i]; local el = os.clock()-n.start; local rem = n.duration-el
@@ -369,59 +368,6 @@ function RCM:DrawStandardInterface()
         RCM.Rect(vector.create(sp.x-8, sp.y-4, 0), vector.create(sw+16, 22, 0), RCM.Theme.Background, 0.9)
         RCM.Outline(vector.create(sp.x-8, sp.y-4, 0), vector.create(sw+16, 22, 0), RCM.Theme.EditModeText, 1)
         RCM.Label(sp, st, RCM.Theme.EditModeText)
-    end
-
-    -- VISIBILITY: Enabled OR Pinned
-    if RCM.State.KeybindList.Visible and (RCM.State.Enabled or RCM.State.KeybindList.Pinned) then
-        local itemsToShow = {}
-        for _, bind in ipairs(RCM.Binders) do if RCM.State.KeybindList.Mode == "Always" or (RCM.State.KeybindList.Mode == "Active" and bind.active) then table.insert(itemsToShow, bind) end end
-        if #itemsToShow > 0 then
-            local p = RCM.State.KeybindList.Pos; 
-            local mw = 160 
-            for _, b in ipairs(itemsToShow) do 
-                local tw = (7*#b.name)+(7*#b.key)+80 
-                if tw > mw then mw = tw end 
-            end
-            
-            local th = 26 + (#itemsToShow * 20) + 4; local sz = vector.create(mw, th, 0)
-            
-            -- Right click for Keybinds
-            if RCM.State.EditMode and RCM:IsMouseOver(p, sz) then
-                if RCM.State.RightMouseDown and not RCM.State.RightMouseHeld then
-                    RCM.State.ActivePopup = { Type = "Element", Obj = RCM.State.KeybindList, Pos = RCM.State.MousePos, Name = "Keybinds" }
-                end
-            end
-
-            if not RCM.State.InputBusy and RCM.State.EditMode and RCM.State.MouseDown and not RCM.State.MouseHeld and RCM:IsMouseOver(p, vector.create(mw, 26, 0)) then 
-                RCM.State.KeybindList.Dragging=true; RCM.State.KeybindList.Offset = vector.create(RCM.State.MousePos.x-p.x, RCM.State.MousePos.y-p.y, 0) 
-            end
-            
-            if RCM.State.KeybindList.Dragging then 
-                if RCM.State.MouseDown then
-                    local raw = vector.create(RCM.State.MousePos.x-RCM.State.KeybindList.Offset.x, RCM.State.MousePos.y-RCM.State.KeybindList.Offset.y, 0)
-                    local dummy = { pos=raw, size=sz }
-                    RCM.State.KeybindList.Pos = RCM:CalculateDragSnap(dummy, raw); p=RCM.State.KeybindList.Pos; RCM.State.InputBusy=true 
-                else RCM.State.KeybindList.Dragging=false end
-            end
-            
-            RCM.Rect(p, sz, RCM.Theme.Border, 1)
-            RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(mw-2, th-2, 0), RCM.Theme.Background, 1)
-            RCM.Rect(p, vector.create(mw, 24, 0), RCM.Theme.Header, 1)
-            RCM.Label(vector.create(p.x+10, p.y+5, 3), "Keybinds", RCM.Theme.Text)
-            
-            local ky = p.y + 30
-            for _, b in ipairs(itemsToShow) do
-                local kt = "["..b.key.."]"; local mt = (b.mode=="Hold" and "[H]") or (b.mode=="Toggle" and "[T]") or "[A]"
-                local rightText = kt..mt
-                local rw = (7 * #rightText)
-                
-                RCM.Label(vector.create(p.x+10, ky, 3), b.name, RCM.Theme.TextDim)
-                local divX = p.x + mw - rw - 15
-                RCM.Line(vector.create(divX, ky+2, 3), vector.create(divX, ky+12, 3), RCM.Theme.Divider, 0.5, 1)
-                RCM.Label(vector.create(p.x + mw - rw - 5, ky, 3), rightText, b.active and RCM.Theme.Accent or RCM.Theme.Text)
-                ky = ky + 20
-            end
-        end
     end
 end
 
@@ -529,7 +475,6 @@ local function LibraryWindow(props)
             end
             tx = tx + w
         end
-        -- Page/Section logic (omitted for brevity, identical to v11.6 but respects pin)
         if page then
             for _, sect in ipairs(page.sections) do
                 local sx = (sect.side == "Left") and (x+12) or (x+12+COL_W+12); local sy = y+sect.ry
@@ -723,10 +668,10 @@ function RCM:DrawPopup()
     if p.Type == "Binder" then title = "Bind Mode"; opts = {"Hold", "Toggle", "Always"}
     elseif p.Type == "Widget" or p.Type == "Window" then 
         title = "Options"; opts = {"Bring to Front", "Send to Back"} 
-        -- ADD PIN OPTION
+        -- Pinning Option
         local isPinned = p.Obj.pinned or false
         table.insert(opts, isPinned and "Unpin" or "Pin")
-    elseif p.Type == "Element" then -- For Watermark/Keybinds
+    elseif p.Type == "Element" then -- For Watermark
         title = p.Name; 
         local isPinned = p.Obj.Pinned or false
         opts = { isPinned and "Unpin" or "Pin" }
@@ -767,6 +712,56 @@ function RCM:DrawPopup()
 end
 
 function RCM:Init()
+    -- Initialize Keybind List as a standard Widget
+    local KeybindWidget = RCM:CreateWidget({
+        Name = "Keybinds",
+        Position = vector.create(60, 110, 0),
+        Size = vector.create(160, 50, 0), -- Initial dummy size
+        Resizable = false -- Auto-sized
+    })
+    
+    -- Define the Draw function for Keybinds
+    KeybindWidget.draw = function()
+        local itemsToShow = {}
+        for _, bind in ipairs(RCM.Binders) do 
+            if RCM.State.KeybindSettings.Mode == "Always" or (RCM.State.KeybindSettings.Mode == "Active" and bind.active) then 
+                table.insert(itemsToShow, bind) 
+            end 
+        end
+        
+        if #itemsToShow > 0 then
+            local p = KeybindWidget.pos
+            local mw = 160 
+            for _, b in ipairs(itemsToShow) do 
+                local tw = (7*#b.name)+(7*#b.key)+80 
+                if tw > mw then mw = tw end 
+            end
+            
+            local th = 26 + (#itemsToShow * 20) + 4
+            -- Auto-Resize the widget
+            KeybindWidget.size = vector.create(mw, th, 0)
+            local sz = KeybindWidget.size
+            
+            RCM.Rect(p, sz, RCM.Theme.Border, 1)
+            RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(mw-2, th-2, 0), RCM.Theme.Background, 1)
+            RCM.Rect(p, vector.create(mw, 24, 0), RCM.Theme.Header, 1)
+            RCM.Label(vector.create(p.x+10, p.y+5, 3), "Keybinds", RCM.Theme.Text)
+            
+            local ky = p.y + 30
+            for _, b in ipairs(itemsToShow) do
+                local kt = "["..b.key.."]"; local mt = (b.mode=="Hold" and "[H]") or (b.mode=="Toggle" and "[T]") or "[A]"
+                local rightText = kt..mt
+                local rw = (7 * #rightText)
+                
+                RCM.Label(vector.create(p.x+10, ky, 3), b.name, RCM.Theme.TextDim)
+                local divX = p.x + mw - rw - 15
+                RCM.Line(vector.create(divX, ky+2, 3), vector.create(divX, ky+12, 3), RCM.Theme.Divider, 0.5, 1)
+                RCM.Label(vector.create(p.x + mw - rw - 5, ky, 3), rightText, b.active and RCM.Theme.Accent or RCM.Theme.Text)
+                ky = ky + 20
+            end
+        end
+    end
+
     local ren = game:GetService("RunService").Render
     ren:Connect(function()
         RCM.State.InputBusy = false
