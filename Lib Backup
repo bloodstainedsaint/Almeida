@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v10.0 (Layout Engine)
--- Features: Edit Mode, Z-Index Layering, Widget Locking
--- Update: Added Right-Click Context Menu for Layering. Widgets locked until Edit Mode active.
+-- [ RCM ] Severe UI Library v10.1 (Selective Locking)
+-- Features: Edit Mode, Z-Index Layering, Widget Snapping
+-- Update: Main Window is always free. Watermark/Widgets require Edit Mode to move.
 
 local RCM = {}
 
-print("[RCM] Library Initialized v10.0 Layout Engine")
+print("[RCM] Library Initialized v10.1 Stable")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -23,7 +23,7 @@ RCM.Theme = {
     Section    = Color3.new(0.25, 0.25, 0.25),
     Negative   = Color3.new(1, 0.3, 0.3),
     ResizeHandle = Color3.new(0.6, 0.6, 0.6),
-    EditModeText = Color3.new(1, 0.8, 0.2) -- Yellow indicator for Edit Mode
+    EditModeText = Color3.new(1, 0.8, 0.2)
 }
 
 RCM.Layer = { Base=0, Section=1, Item=2, Text=3, Widget=10, Popup=500, InfoWin=100, Snap=400, Notif=600, Tooltip=700 }
@@ -32,13 +32,13 @@ local WIN_W, COL_W = 550, 260
 -- [ 2 ] State & Registry
 RCM.State = {
     Enabled = true,
-    EditMode = false, -- NEW: Master switch for moving widgets
+    EditMode = false, 
     MousePos = vector.create(0, 0, 0),
     MouseDown = false, MouseHeld = false,
     RightMouseDown = false, RightMouseHeld = false,
     ToggleKey = "Delete", LastToggle = 0,
     ActiveTooltip = nil, 
-    ActivePopup = nil, -- Now handles Binders AND Widgets
+    ActivePopup = nil, 
     ScreenSize = vector.create(1920, 1080, 0),
     Watermark = { Visible = true, Text = "Severe UI", Extra = true, Pos = vector.create(50, 50, 0), Dragging = false, Offset = vector.create(0,0,0) },
     KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) },
@@ -104,7 +104,6 @@ function RCM:UpdateInput()
     if RCM.State.MouseDown and not RCM.State.MouseHeld and RCM.State.ActivePopup then
         local p = RCM.State.ActivePopup
         local size = p.Size or vector.create(80, 64, 0)
-        -- Custom size check for Widget Menu
         if p.Type == "Widget" then size = vector.create(120, 44, 0) end
         
         if not RCM:IsMouseOver(p.Pos, size) then RCM.State.ActivePopup = nil end
@@ -161,16 +160,15 @@ function RCM:SetEditMode(val) RCM.State.EditMode = val end
 -- ============================================================================
 
 function RCM:ReorderWidget(widget, action)
-    -- Find index
     local index = nil
     for i, w in ipairs(RCM.Widgets) do if w == widget then index = i break end end
     if not index then return end
     
     table.remove(RCM.Widgets, index)
     if action == "Front" then
-        table.insert(RCM.Widgets, widget) -- End of table = Draw Last = Top
+        table.insert(RCM.Widgets, widget) 
     elseif action == "Back" then
-        table.insert(RCM.Widgets, 1, widget) -- Start of table = Draw First = Bottom
+        table.insert(RCM.Widgets, 1, widget) 
     end
 end
 
@@ -297,28 +295,29 @@ function RCM:CreateWidget(props)
     return widget
 end
 
-function RCM:HandleDraggable(obj)
-    local click = RCM.State.MouseDown and not RCM.State.MouseHeld
-    local rClick = RCM.State.RightMouseDown and not RCM.State.RightMouseHeld
-    local hovered = RCM:IsMouseOver(obj.pos, obj.size)
-
-    -- [ NEW ] Edit Mode Check
-    if not RCM.State.EditMode then
+function RCM:HandleDraggable(obj, ignoreEditMode)
+    -- [ FIX ] Lock interaction unless EditMode is active OR 'ignoreEditMode' is true
+    if not RCM.State.Enabled or (not RCM.State.EditMode and not ignoreEditMode) then
         obj.dragging = false
         obj.resizing = false
         return
     end
 
+    local click = RCM.State.MouseDown and not RCM.State.MouseHeld
+    local rClick = RCM.State.RightMouseDown and not RCM.State.RightMouseHeld
+    local hovered = RCM:IsMouseOver(obj.pos, obj.size)
+
     if not RCM.State.InputBusy then
-        -- Layering Context Menu
-        if hovered and rClick then
+        -- Layering Context Menu (Only in Edit Mode)
+        if hovered and rClick and RCM.State.EditMode then
             RCM.State.ActivePopup = { Type = "Widget", Obj = obj, Pos = RCM.State.MousePos }
         end
 
         -- 1. Check Resize (Bottom Right)
-        if obj.resizable then
+        if obj.resizable and RCM.State.EditMode then
             local handleSize = 15
             local handlePos = vector.create(obj.pos.x + obj.size.x - handleSize, obj.pos.y + obj.size.y - handleSize, 0)
+            
             if click and RCM:IsMouseOver(handlePos, vector.create(handleSize, handleSize, 0)) then
                 obj.resizing = true
             end
@@ -351,7 +350,7 @@ function RCM:HandleDraggable(obj)
 
     -- Draw Visuals (L Bracket) only in Edit Mode
     if obj.resizable and RCM.State.Enabled and RCM.State.EditMode then
-        local p = obj.pos; local s = obj.size; local hs = 15 -- Handle Size
+        local p = obj.pos; local s = obj.size; local hs = 15 
         local c = (obj.resizing or RCM:IsMouseOver(vector.create(p.x+s.x-hs, p.y+s.y-hs, 0), vector.create(hs,hs,0))) and RCM.Theme.Accent or RCM.Theme.ResizeHandle
         local z = RCM.Layer.Widget+5
         local thick = 3
@@ -387,20 +386,11 @@ local function LibraryWindow(props)
         local totalH = math.max(lY, rY)
         self.size = vector.create(WIN_W, totalH + 10, 0)
 
-        -- Handle Drag
-        local click = RCM.State.MouseDown and not RCM.State.MouseHeld
-        if not RCM.State.InputBusy and click and RCM:IsMouseOver(self.pos, self.size) then
-            self.dragging = true; self.dragOffset = vector.create(RCM.State.MousePos.x - self.pos.x, RCM.State.MousePos.y - self.pos.y, 0)
-        end
-        if self.dragging then
-            if RCM.State.MouseDown then
-                local raw = vector.create(RCM.State.MousePos.x - self.dragOffset.x, RCM.State.MousePos.y - self.dragOffset.y, 0)
-                self.pos = RCM:CalculateDragSnap(self, raw)
-                RCM.State.InputBusy = true
-            else self.dragging = false end
-        end
+        -- [ FIX ] Always allow dragging Main Window (pass true)
+        RCM:HandleDraggable(self, true)
 
         local x, y = self.pos.x, self.pos.y
+        local click = RCM.State.MouseDown and not RCM.State.MouseHeld
         if RCM.State.InputBusy and not self.dragging then click = false end
 
         RCM.Rect(vector.create(x,y,0), self.size, RCM.Theme.Border, 1)
@@ -441,7 +431,6 @@ local function LibraryWindow(props)
                     local itemPos = vector.create(sx+5, cy, 0)
                     local hover = RCM:IsMouseOver(itemPos, vector.create(COL_W-10, iH-4, 0))
                     local iClick = hover and click
-                    local iRClick = hover and RCM.State.RightMouseDown and not RCM.State.RightMouseHeld
                     if hover then RCM.Rect(itemPos, vector.create(COL_W-10, iH-4, 0), RCM.Theme.Hover, 0.5) end
 
                     if item.type == "toggle" then
@@ -522,7 +511,7 @@ local function LibraryWindow(props)
                     
                     elseif item.type == "binder" then
                         if iClick then item.listening = not item.listening end
-                        if iRClick and hover then RCM.State.ActivePopup = { BindItem = item, Pos = RCM.State.MousePos, Type = "Binder" } end
+                        if (RCM.State.RightMouseDown and not RCM.State.RightMouseHeld) and hover then RCM.State.ActivePopup = { BindItem = item, Pos = RCM.State.MousePos, Type = "Binder" } end
                         local txt = "[" .. (item.listening and "..." or item.key) .. "]"
                         local keyW = (7 * #txt)
                         RCM.Label(vector.create(nmX, cy + 3, 3), FitText(item.name, 230 - keyW), RCM.Theme.Text)
@@ -633,6 +622,7 @@ function RCM:DrawInfoWindows()
 end
 
 function RCM:DrawStandardInterface()
+    -- Watermark
     if RCM.State.Watermark.Visible then
         local p, t = RCM.State.Watermark.Pos, RCM.State.Watermark.Text
         if RCM.State.Watermark.Extra then 
@@ -643,8 +633,13 @@ function RCM:DrawStandardInterface()
             t = t .. " | User: " .. plrName 
         end
         local sz = vector.create((7*#t)+20, 22, 0)
+        
+        -- [ FIX ] Lock Watermark Logic
         if RCM.State.Enabled and not RCM.State.InputBusy then
-            if RCM.State.MouseDown and not RCM.State.MouseHeld and RCM:IsMouseOver(p, sz) then RCM.State.Watermark.Dragging = true; RCM.State.Watermark.Offset = vector.create(RCM.State.MousePos.x-p.x, RCM.State.MousePos.y-p.y, 0) end
+            -- Only allowed if Edit Mode is Active
+            if RCM.State.EditMode and RCM.State.MouseDown and not RCM.State.MouseHeld and RCM:IsMouseOver(p, sz) then 
+                RCM.State.Watermark.Dragging = true; RCM.State.Watermark.Offset = vector.create(RCM.State.MousePos.x-p.x, RCM.State.MousePos.y-p.y, 0) 
+            end
             if RCM.State.Watermark.Dragging then
                 if RCM.State.MouseDown then
                     local raw = vector.create(RCM.State.MousePos.x-RCM.State.Watermark.Offset.x, RCM.State.MousePos.y-RCM.State.Watermark.Offset.y, 0)
@@ -680,6 +675,7 @@ function RCM:DrawStandardInterface()
         RCM.Label(sp, st, RCM.Theme.EditModeText)
     end
 
+    -- Keybind List
     if RCM.State.KeybindList.Visible and RCM.State.Enabled then
         local itemsToShow = {}
         for _, bind in ipairs(RCM.Binders) do if RCM.State.KeybindList.Mode == "Always" or (RCM.State.KeybindList.Mode == "Active" and bind.active) then table.insert(itemsToShow, bind) end end
@@ -687,7 +683,14 @@ function RCM:DrawStandardInterface()
             local p = RCM.State.KeybindList.Pos; local mw = 130; for _, b in ipairs(itemsToShow) do local tw = (7*#b.name)+(7*#b.key)+50; if tw>mw then mw=tw end end
             local th = 24 + (#itemsToShow * 18) + 4
             local sz = vector.create(mw, th, 0)
-            if not RCM.State.InputBusy and RCM.State.MouseDown and not RCM.State.MouseHeld and RCM:IsMouseOver(p, vector.create(mw, 24, 0)) then RCM.State.KeybindList.Dragging=true; RCM.State.KeybindList.Offset = vector.create(RCM.State.MousePos.x-p.x, RCM.State.MousePos.y-p.y, 0) end
+            
+            -- [ FIX ] Lock Keybind List Logic
+            if not RCM.State.InputBusy then 
+                if RCM.State.EditMode and RCM.State.MouseDown and not RCM.State.MouseHeld and RCM:IsMouseOver(p, vector.create(mw, 24, 0)) then 
+                    RCM.State.KeybindList.Dragging=true; RCM.State.KeybindList.Offset = vector.create(RCM.State.MousePos.x-p.x, RCM.State.MousePos.y-p.y, 0) 
+                end
+            end
+            
             if RCM.State.KeybindList.Dragging then 
                 if RCM.State.MouseDown then
                     local raw = vector.create(RCM.State.MousePos.x-RCM.State.KeybindList.Offset.x, RCM.State.MousePos.y-RCM.State.KeybindList.Offset.y, 0)
@@ -709,7 +712,6 @@ function RCM:DrawStandardInterface()
     end
 end
 
--- [ UPDATED ] Popup Logic for Binders AND Widgets
 function RCM:DrawPopup()
     if not RCM.State.ActivePopup then return end
     local p = RCM.State.ActivePopup; local pos = p.Pos
@@ -779,8 +781,6 @@ function RCM:Init()
 end
 
 function RCM:HandleDraggableWidgets()
-    -- Render loop for widgets
-    -- Layering logic depends on table order
     for _, wid in ipairs(RCM.Widgets) do
         RCM:HandleDraggable(wid)
         wid.draw()
