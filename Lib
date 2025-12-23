@@ -1,9 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v6.0 (RELEASE)
--- Features: Notifications, Keybinds (Right-Click Modes), Watermark, Dual Columns, Z-Layering
+-- [ RCM ] Severe UI Library v7.4 (RELEASE)
+-- Features: Wiki System, Focused Dragging, Notifications, Keybind Modes, HUD
 
 local RCM = {}
 local Library = {}
+
+print("[RCM] Library Loaded (v7.4)")
 
 -- [ 1 ] Configuration
 RCM.Theme = {
@@ -14,10 +16,12 @@ RCM.Theme = {
     Text       = Color3.new(0.9, 0.9, 0.9),
     TextDim    = Color3.new(0.5, 0.5, 0.5),
     Hover      = Color3.new(0.16, 0.16, 0.16),
-    TooltipBg  = Color3.new(0.05, 0.05, 0.05)
+    TooltipBg  = Color3.new(0.05, 0.05, 0.05),
+    InfoWinBg  = Color3.new(0.1, 0.1, 0.1),
+    Link       = Color3.new(0.4, 0.6, 1)
 }
 
-RCM.Layer = { Base = 0, Section = 1, Item = 2, Text = 3, Popup = 20, Notif = 50, Tooltip = 60 }
+RCM.Layer = { Base = 0, Section = 1, Item = 2, Text = 3, Popup = 20, InfoWin = 100, Notif = 200, Tooltip = 300 }
 
 local WIN_W = 550
 local COL_W = 260
@@ -36,10 +40,10 @@ RCM.State = {
     ActiveTooltip = nil,
     ActivePopup = nil,
     ScreenSize = vector.create(1920, 1080, 0),
-    
     Watermark = { Visible = true, Text = "Severe UI", Extra = true, Pos = vector.create(50, 50, 0), Dragging = false, Offset = vector.create(0,0,0) },
     KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) },
-    
+    InfoWindows = {},
+    InputBusy = false,
     LastTick = 0, FrameCount = 0, CurrentFPS = 60
 }
 
@@ -64,6 +68,22 @@ local function FitText(text, maxWidth)
     return text
 end
 
+local function WrapText(str, maxChars)
+    local lines = {}
+    local currentLine = ""
+    for word in str:gmatch("%S+") do
+        if #currentLine + #word + 1 > maxChars then
+            table.insert(lines, currentLine)
+            currentLine = word
+        else
+            if currentLine == "" then currentLine = word else currentLine = currentLine .. " " .. word end
+        end
+    end
+    if currentLine ~= "" then table.insert(lines, currentLine) end
+    if #lines == 0 then lines = {str} end
+    return lines
+end
+
 local function Lerp(a, b, t)
     return a + (b - a) * t
 end
@@ -81,6 +101,8 @@ function RCM:UpdateInput()
         self.State.MouseHeld = false
         self.State.Watermark.Dragging = false
         self.State.KeybindList.Dragging = false
+        for _, win in ipairs(self.State.InfoWindows) do win.dragging = false end
+        for _, win in ipairs(RCM.Windows) do win.dragging = false end
     end
 
     local rDown = isrightpressed()
@@ -91,13 +113,10 @@ function RCM:UpdateInput()
         self.State.RightMouseHeld = false
     end
 
-    -- Close popup if clicking outside
     if self.State.MouseDown and not self.State.MouseHeld and self.State.ActivePopup then
         local p = self.State.ActivePopup
-        local size = vector.create(80, 64, 0) -- Approx size
-        if not self:IsMouseOver(p.Pos, size) then
-            self.State.ActivePopup = nil
-        end
+        local size = vector.create(80, 64, 0)
+        if not self:IsMouseOver(p.Pos, size) then self.State.ActivePopup = nil end
     end
 
     local keys = getpressedkeys()
@@ -160,57 +179,184 @@ function RCM:SetWatermark(text)
 end
 
 -- ============================================================================
--- [ 3 ] NOTIFICATIONS & HUD
+-- [ 3 ] NOTIFICATIONS & RICH INFO WINDOWS
 -- ============================================================================
 
 function RCM:Notify(msg, duration)
     local notif = {
-        id = tick() .. math.random(),
-        text = msg,
-        duration = duration or 3,
-        start = tick(),
-        alpha = 0
+        id = tick() .. math.random(), text = msg, duration = duration or 3, start = tick(), alpha = 0
     }
     table.insert(self.Notifications, notif)
+end
+
+function RCM:OpenInfoWindow(title, content)
+    for i, win in ipairs(self.State.InfoWindows) do
+        if win.title == title then
+            table.insert(self.State.InfoWindows, table.remove(self.State.InfoWindows, i))
+            return
+        end
+    end
+
+    local processedLines = {}
+    if type(content) == "string" then
+        local rawLines = WrapText(content, 40)
+        for _, l in ipairs(rawLines) do table.insert(processedLines, { type = "text", text = l }) end
+    elseif type(content) == "table" then
+        for _, item in ipairs(content) do
+            if type(item) == "string" then
+                local rawLines = WrapText(item, 40)
+                for _, l in ipairs(rawLines) do table.insert(processedLines, { type = "text", text = l }) end
+            elseif type(item) == "table" then
+                if item.Text then
+                    table.insert(processedLines, { type = "link", text = item.Text, callback = item.Callback })
+                elseif item.Type == "sep" then
+                    table.insert(processedLines, { type = "sep" })
+                end
+            end
+        end
+    end
+
+    local lastWin = self.State.InfoWindows[#self.State.InfoWindows]
+    local spawnPos
+    if lastWin then
+        spawnPos = vector.create(lastWin.pos.x + 20, lastWin.pos.y + 20, 0)
+    else
+        local center = vector.create((self.State.ScreenSize.x / 2) - 150, (self.State.ScreenSize.y / 2) - 100, 0)
+        spawnPos = center
+    end
+
+    local win = {
+        id = tick() .. math.random(),
+        title = title,
+        items = processedLines,
+        pos = spawnPos,
+        dragging = false, dragOffset = vector.create(0,0,0)
+    }
+    table.insert(self.State.InfoWindows, win)
+end
+
+function RCM:UpdateInfoWindowsLogic()
+    if not self.State.Enabled then return end
+    
+    for i = #self.State.InfoWindows, 1, -1 do
+        local win = self.State.InfoWindows[i]
+        local width = 300
+        local headerH = 22
+        
+        local contentH = 10
+        for _, item in ipairs(win.items) do
+            if item.type == "sep" then contentH = contentH + 8 else contentH = contentH + 16 end
+        end
+        local totalH = headerH + contentH
+        
+        if not self.State.InputBusy or win.dragging then
+            local click = self.State.MouseDown and not self.State.MouseHeld
+            
+            if self:IsMouseOver(win.pos, vector.create(width, totalH, 0)) then
+                if self.State.MouseDown then self.State.InputBusy = true end
+                
+                local closePos = vector.create(win.pos.x + width - 20, win.pos.y + 2, 0)
+                if click and self:IsMouseOver(closePos, vector.create(18, 18, 0)) then
+                    table.remove(self.State.InfoWindows, i)
+                    return 
+                end
+
+                if self:IsMouseOver(win.pos, vector.create(width, headerH, 0)) then
+                    if click then
+                        win.dragging = true
+                        win.dragOffset = vector.create(self.State.MousePos.x - win.pos.x, self.State.MousePos.y - win.pos.y, 0)
+                        table.insert(self.State.InfoWindows, table.remove(self.State.InfoWindows, i))
+                        return
+                    end
+                end
+                
+                if click then
+                    local cy = win.pos.y + headerH + 5
+                    for _, item in ipairs(win.items) do
+                        if item.type == "link" then
+                            local linkPos = vector.create(win.pos.x+10, cy, 0)
+                            local w = (7 * #item.text)
+                            if self:IsMouseOver(linkPos, vector.create(w, 14, 0)) then
+                                if item.callback then item.callback() end
+                            end
+                        end
+                        if item.type == "sep" then cy=cy+8 else cy=cy+16 end
+                    end
+                end
+            end
+        end
+        
+        if win.dragging then
+            win.pos = vector.create(self.State.MousePos.x - win.dragOffset.x, self.State.MousePos.y - win.dragOffset.y, 0)
+            self.State.InputBusy = true
+        end
+    end
+end
+
+function RCM:DrawInfoWindowsRender()
+    for i, win in ipairs(self.State.InfoWindows) do
+        local width = 300
+        local headerH = 22
+        local contentH = 10
+        for _, item in ipairs(win.items) do
+            if item.type == "sep" then contentH = contentH + 8 else contentH = contentH + 16 end
+        end
+        local totalH = headerH + contentH
+        local pos = win.pos
+        local zBase = RCM.Layer.InfoWin + i 
+        
+        RCM.Rect(vector.create(pos.x, pos.y, zBase), vector.create(width, totalH, 0), self.Theme.Border, 1)
+        RCM.Rect(vector.create(pos.x+1, pos.y+1, zBase), vector.create(width-2, totalH-2, 0), self.Theme.InfoWinBg, 1)
+        RCM.Rect(vector.create(pos.x, pos.y, zBase), vector.create(width, 2, 0), self.Theme.Accent, 1)
+        RCM.Label(vector.create(pos.x+10, pos.y+4, zBase), win.title, self.Theme.Text)
+        RCM.Label(vector.create(pos.x + width - 15, pos.y + 4, zBase), "X", self.Theme.Negative or Color3.new(1, 0.3, 0.3))
+        
+        local cy = pos.y + headerH + 5
+        for _, item in ipairs(win.items) do
+            if item.type == "text" then
+                RCM.Label(vector.create(pos.x+10, cy, zBase), item.text, self.Theme.TextDim)
+                cy = cy + 16
+            elseif item.type == "link" then
+                local linkPos = vector.create(pos.x+10, cy, 0)
+                local w = (7 * #item.text)
+                local color = self.Theme.Link
+                if self.State.Enabled and i == #self.State.InfoWindows and self:IsMouseOver(linkPos, vector.create(w, 14, 0)) then
+                    color = self.Theme.Accent 
+                end
+                RCM.Label(vector.create(pos.x+10, cy, zBase), item.text, color)
+                RCM.Rect(vector.create(pos.x+10, cy+13, zBase), vector.create(w, 1, 0), color, 1)
+                cy = cy + 16
+            elseif item.type == "sep" then
+                RCM.Rect(vector.create(pos.x+10, cy+3, zBase), vector.create(width-20, 1, 0), self.Theme.Border, 0.5)
+                cy = cy + 8
+            end
+        end
+    end
 end
 
 function RCM:DrawNotifications()
     local screen = self.State.ScreenSize
     local startY = 50
     local spacing = 35
-    
     for i = #self.Notifications, 1, -1 do
         local n = self.Notifications[i]
         local elapsed = tick() - n.start
         local remaining = n.duration - elapsed
-        
         local targetAlpha = 0
-        if elapsed < 0.25 then targetAlpha = elapsed / 0.25
-        elseif remaining < 0.25 then targetAlpha = remaining / 0.25
-        else targetAlpha = 1 end
-        
+        if elapsed < 0.25 then targetAlpha = elapsed / 0.25 elseif remaining < 0.25 then targetAlpha = remaining / 0.25 else targetAlpha = 1 end
         n.alpha = Lerp(n.alpha, targetAlpha, 0.2)
-        
-        if remaining <= 0 and n.alpha < 0.05 then
-            table.remove(self.Notifications, i)
-        else
+        if remaining <= 0 and n.alpha < 0.05 then table.remove(self.Notifications, i) else
             local textW = (7 * #n.text) + 20
             local boxW = textW
-            local boxH = 26
-            
             local targetX = screen.x - boxW - 20
             local startX = screen.x + 10
             local currentX = Lerp(startX, targetX, n.alpha)
-            
             local pos = vector.create(currentX, startY, RCM.Layer.Notif)
-            
-            RCM.Rect(pos, vector.create(boxW, boxH, 0), RCM.Theme.Border, 1)
-            RCM.Rect(vector.create(pos.x+1, pos.y+1, RCM.Layer.Notif), vector.create(boxW-2, boxH-2, 0), RCM.Theme.Background, 1)
+            RCM.Rect(pos, vector.create(boxW, 26, 0), RCM.Theme.Border, 1)
+            RCM.Rect(vector.create(pos.x+1, pos.y+1, RCM.Layer.Notif), vector.create(boxW-2, 24, 0), RCM.Theme.Background, 1)
             RCM.Label(vector.create(pos.x+10, pos.y+5, RCM.Layer.Notif), n.text, RCM.Theme.Text)
-            
             local barPct = math.clamp(remaining / n.duration, 0, 1)
-            RCM.Rect(vector.create(pos.x+1, pos.y + boxH - 3, RCM.Layer.Notif), vector.create((boxW-2) * barPct, 2, 0), RCM.Theme.Accent, 1)
-            
+            RCM.Rect(vector.create(pos.x+1, pos.y + 23, RCM.Layer.Notif), vector.create((boxW-2) * barPct, 2, 0), RCM.Theme.Accent, 1)
             startY = startY + spacing
         end
     end
@@ -221,11 +367,10 @@ function RCM:DrawWatermark()
     local pos = self.State.Watermark.Pos
     local text = self.State.Watermark.Text
     if self.State.Watermark.Extra then text = text .. " | FPS: " .. tostring(self.State.CurrentFPS) end
-    
     local width = (7 * #text) + 20
     local size = vector.create(width, 22, 0)
     
-    if self.State.Enabled then
+    if self.State.Enabled and not self.State.InputBusy then
         local click = self.State.MouseDown and not self.State.MouseHeld
         if click and self:IsMouseOver(pos, size) then
             self.State.Watermark.Dragging = true
@@ -234,9 +379,9 @@ function RCM:DrawWatermark()
         if self.State.Watermark.Dragging then
             self.State.Watermark.Pos = vector.create(self.State.MousePos.x - self.State.Watermark.Offset.x, self.State.MousePos.y - self.State.Watermark.Offset.y, 0)
             pos = self.State.Watermark.Pos
+            self.State.InputBusy = true
         end
     end
-
     RCM.Rect(vector.create(pos.x, pos.y, RCM.Layer.Base), size, self.Theme.Border, 1)
     RCM.Rect(vector.create(pos.x + 1, pos.y + 1, RCM.Layer.Section), vector.create(size.x - 2, size.y - 2, 0), self.Theme.Background, 1)
     RCM.Rect(vector.create(pos.x, pos.y, RCM.Layer.Item), vector.create(width, 2, 0), self.Theme.Accent, 1)
@@ -264,7 +409,7 @@ function RCM:DrawKeybindList()
     local totalHeight = 24 + (#itemsToShow * 18) + 4
     local size = vector.create(maxWidth, totalHeight, 0)
 
-    if self.State.Enabled then
+    if self.State.Enabled and not self.State.InputBusy then
         local click = self.State.MouseDown and not self.State.MouseHeld
         if click and self:IsMouseOver(pos, vector.create(maxWidth, 24, 0)) then
             self.State.KeybindList.Dragging = true
@@ -273,6 +418,7 @@ function RCM:DrawKeybindList()
         if self.State.KeybindList.Dragging then
             self.State.KeybindList.Pos = vector.create(self.State.MousePos.x - self.State.KeybindList.Offset.x, self.State.MousePos.y - self.State.KeybindList.Offset.y, 0)
             pos = self.State.KeybindList.Pos
+            self.State.InputBusy = true
         end
     end
 
@@ -310,13 +456,10 @@ function RCM:DrawPopup()
         local optPos = vector.create(pos.x + 2, cy, RCM.Layer.Popup)
         local optSize = vector.create(width - 4, 18, 0)
         local hovered = self:IsMouseOver(optPos, optSize)
-        
         if hovered then
             RCM.Rect(optPos, optSize, self.Theme.Accent, 0.8)
             if self.State.MouseDown and not self.State.MouseHeld then
-                bind.mode = mode
-                self.State.ActivePopup = nil
-                return
+                bind.mode = mode; self.State.ActivePopup = nil; return
             end
         end
         local txtCol = (bind.mode == mode) and self.Theme.Accent or self.Theme.Text
@@ -346,20 +489,27 @@ function Library:Window(props)
 
     function window:Draw()
         if not RCM.State.Enabled then return end
+        
+        if not RCM.State.InputBusy then
+            local x, y = self.pos.x, self.pos.y
+            local click = RCM.State.MouseDown and not RCM.State.MouseHeld
 
-        local x, y = self.pos.x, self.pos.y
-        local click = RCM.State.MouseDown and not RCM.State.MouseHeld
-        local rClick = RCM.State.RightMouseDown and not RCM.State.RightMouseHeld
-
-        if click and RCM:IsMouseOver(self.pos, vector.create(WIN_W, 30, 0)) then
-            self.dragging = true
-            self.dragOffset = vector.create(RCM.State.MousePos.x - x, RCM.State.MousePos.y - y, 0)
+            if click and RCM:IsMouseOver(self.pos, vector.create(WIN_W, 30, 0)) then
+                self.dragging = true
+                self.dragOffset = vector.create(RCM.State.MousePos.x - x, RCM.State.MousePos.y - y, 0)
+            end
         end
+        
         if self.dragging then
             if RCM.State.MouseDown then
                 self.pos = vector.create(RCM.State.MousePos.x - self.dragOffset.x, RCM.State.MousePos.y - self.dragOffset.y, 0)
+                RCM.State.InputBusy = true
             else self.dragging = false end
         end
+
+        local x, y = self.pos.x, self.pos.y
+        local click = RCM.State.MouseDown and not RCM.State.MouseHeld
+        if RCM.State.InputBusy and not self.dragging then click = false end
 
         local page = self.pages[self.activePage]
         local leftY, rightY = 55, 55
@@ -368,9 +518,10 @@ function Library:Window(props)
             for _, section in ipairs(page.sections) do
                 local h = 25
                 for _, item in ipairs(section.items) do
-                    h = h + 24
-                    if item.type == "dropdown" and item.open then h = h + (#item.options * 20)
-                    elseif item.type == "colorpicker" and item.open then h = h + 70 end
+                    local hAdd = 24
+                    if item.type == "dropdown" and item.open then hAdd = hAdd + (#item.options * 20)
+                    elseif item.type == "colorpicker" and item.open then hAdd = hAdd + 70 end
+                    h = h + hAdd
                 end
                 if section.side == "Left" then section.renderY = leftY; leftY = leftY + h + 10
                 else section.renderY = rightY; rightY = rightY + h + 10 end
@@ -402,12 +553,12 @@ function Library:Window(props)
             for _, section in ipairs(page.sections) do
                 local sx = (section.side == "Left") and (x + 12) or (x + 12 + 260 + 10)
                 local sy = y + section.renderY
-                
                 local sh = 25
                 for _, item in ipairs(section.items) do
-                    sh = sh + 24
-                    if item.type == "dropdown" and item.open then sh = sh + (#item.options * 20)
-                    elseif item.type == "colorpicker" and item.open then sh = sh + 70 end
+                    local hAdd = 24
+                    if item.type == "dropdown" and item.open then hAdd = hAdd + (#item.options * 20)
+                    elseif item.type == "colorpicker" and item.open then hAdd = hAdd + 70 end
+                    sh = sh + hAdd
                 end
                 
                 RCM.Rect(vector.create(sx, sy, RCM.Layer.Section), vector.create(COL_W, sh, 0), RCM.Theme.Border, 1)
@@ -425,9 +576,9 @@ function Library:Window(props)
                     if item.type == "slider" then limit = 110 end
                     if item.type == "binder" then limit = 160 end
                     if item.type == "dropdown" then limit = 130 end
-                    
                     local displayName = FitText(item.name, limit)
                     local iH = 24
+                    
                     local itemPos = vector.create(sx + 5, cy, 0)
                     local hover = RCM:IsMouseOver(itemPos, vector.create(COL_W - 10, iH - 4, 0))
                     local iClick = hover and click
@@ -435,10 +586,7 @@ function Library:Window(props)
                     if hover then RCM.Rect(vector.create(itemPos.x, itemPos.y, RCM.Layer.Item), vector.create(COL_W - 10, iH - 4, 0), RCM.Theme.Hover, 0.5) end
                     
                     if item.type == "toggle" then
-                        if iClick then 
-                            item.value = not item.value
-                            if item.callback then item.callback(item.value) end 
-                        end
+                        if iClick then item.value = not item.value; if item.callback then item.callback(item.value) end end
                         RCM.Label(vector.create(nameX, cy + 3, zItem), displayName, RCM.Theme.Text)
                         local boxCol = item.value and RCM.Theme.Accent or RCM.Theme.Section
                         RCM.Rect(vector.create(valX - 10, cy + 5, zItem), vector.create(10, 10, 0), RCM.Theme.Border, 1)
@@ -449,13 +597,10 @@ function Library:Window(props)
                         RCM.Label(vector.create(nameX, cy + 3, zItem), displayName, hover and RCM.Theme.Accent or RCM.Theme.Text)
 
                     elseif item.type == "slider" then
-                        if hover and isleftpressed() then
+                        if hover and isleftpressed() and not RCM.State.InputBusy then
                             local pct = math.clamp((RCM.State.MousePos.x - (valX - 100)) / 100, 0, 1)
                             local nv = math.floor(item.min + (item.max - item.min) * pct)
-                            if nv ~= item.value then 
-                                item.value = nv
-                                if item.callback then item.callback(nv) end 
-                            end
+                            if nv ~= item.value then item.value = nv; if item.callback then item.callback(nv) end end
                         end
                         RCM.Label(vector.create(nameX, cy + 3, zItem), displayName, RCM.Theme.Text)
                         RCM.Label(vector.create(valX - 120, cy + 3, zItem), tostring(item.value), RCM.Theme.Text)
@@ -472,11 +617,7 @@ function Library:Window(props)
                                 local oPos = vector.create(sx + 15, dy, 0)
                                 if RCM:IsMouseOver(oPos, vector.create(230, 18, 0)) then
                                     RCM.Rect(vector.create(oPos.x, oPos.y, RCM.Layer.Popup), vector.create(230, 18, 0), RCM.Theme.Hover, 0.5)
-                                    if click then 
-                                        item.selected = opt; 
-                                        item.open = false; 
-                                        if item.callback then item.callback(opt) end 
-                                    end
+                                    if click then item.selected = opt; item.open = false; if item.callback then item.callback(opt) end end
                                 end
                                 RCM.Label(vector.create(sx + 20, dy + 2, RCM.Layer.Popup), opt, (item.selected == opt) and RCM.Theme.Accent or RCM.Theme.Text)
                                 dy = dy + 20
@@ -514,10 +655,7 @@ function Library:Window(props)
                             local g = slider("G", math.floor(item.color.G*255), 255)
                             local b = slider("B", math.floor(item.color.B*255), 255)
                             local nc = Color3.fromRGB(r,g,b)
-                            if nc ~= item.color then 
-                                item.color = nc; 
-                                if item.callback then item.callback(nc) end 
-                            end
+                            if nc ~= item.color then item.color = nc; if item.callback then item.callback(nc) end end
                             iH = iH + 70
                         end
                     end
@@ -572,13 +710,16 @@ function RCM:Init()
     end
 
     Connect(renderEvent, function()
+        self.State.InputBusy = false
         self:UpdateInput()
         self:UpdateBinders()
         self.State.ActiveTooltip = nil
         self:DrawWatermark()
         self:DrawKeybindList()
-        self:DrawNotifications()
+        self:UpdateInfoWindowsLogic()
         for _, win in ipairs(self.Windows) do win:Draw() end
+        self:DrawInfoWindowsRender()
+        self:DrawNotifications()
         self:DrawPopup()
         if self.State.ActiveTooltip and not self.State.ActivePopup then
             local t = self.State.ActiveTooltip
@@ -602,4 +743,5 @@ function RCM:CreateWindow(props)
 end
 
 RCM:Init()
+
 return RCM
