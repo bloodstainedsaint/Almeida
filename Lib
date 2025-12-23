@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v8.0 (Lite)
--- Features: Multi-Select Dropdowns, Tooltip Fix, Runtime Flags
--- Removed: Config System (File I/O), TextBox
+-- [ RCM ] Severe UI Library v8.1 (Lite Fixed)
+-- Features: Multi-Select, Tooltip Fix, Runtime Flags, Binders
+-- Fixed: Added missing 'Binder' method
 
 local RCM = {}
 
-print("[RCM] Library Initialized v8.0 Lite") -- Debug print
+print("[RCM] Library Initialized v8.1 Lite")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -43,7 +43,7 @@ RCM.State = {
 RCM.Binders = {}
 RCM.Notifications = {}
 RCM.Windows = {}
-RCM.Flags = {} -- Kept for runtime usage (scripts can read values here), but no saving/loading.
+RCM.Flags = {} 
 
 -- [ 2 ] Helpers
 function RCM.Rect(pos, size, color, alpha) DrawingImmediate.FilledRectangle(pos, size, color, alpha or 1) end
@@ -87,7 +87,6 @@ function RCM:UpdateInput()
     elseif rDown and self.State.RightMouseDown then self.State.RightMouseHeld = true
     elseif not rDown then self.State.RightMouseDown = false; self.State.RightMouseHeld = false end
 
-    -- Close Popup if clicked outside
     if self.State.MouseDown and not self.State.MouseHeld and self.State.ActivePopup then
         local p = self.State.ActivePopup
         local size = p.Size or vector.create(80, 64, 0)
@@ -189,6 +188,65 @@ function RCM:DrawStandardInterface()
             startY = startY + 35
         end
     end
+
+    -- Keybind List Draw
+    if self.State.KeybindList.Visible and self.State.Enabled then
+        local itemsToShow = {}
+        for _, bind in ipairs(RCM.Binders) do
+            if self.State.KeybindList.Mode == "Always" then table.insert(itemsToShow, bind)
+            elseif self.State.KeybindList.Mode == "Active" and bind.active then table.insert(itemsToShow, bind) end
+        end
+        if #itemsToShow > 0 then
+            local p = self.State.KeybindList.Pos
+            local mw = 130
+            for _, b in ipairs(itemsToShow) do local tw = (7*#b.name) + (7*#b.key) + 50; if tw > mw then mw = tw end end
+            local th = 24 + (#itemsToShow * 18) + 4
+            
+            if not self.State.InputBusy then
+                if self.State.MouseDown and not self.State.MouseHeld and self:IsMouseOver(p, vector.create(mw, 24, 0)) then
+                    self.State.KeybindList.Dragging = true; self.State.KeybindList.Offset = vector.create(self.State.MousePos.x-p.x, self.State.MousePos.y-p.y, 0)
+                end
+            end
+            if self.State.KeybindList.Dragging then
+                if self.State.MouseDown then self.State.KeybindList.Pos = vector.create(self.State.MousePos.x-self.State.KeybindList.Offset.x, self.State.MousePos.y-self.State.KeybindList.Offset.y, 0); p=self.State.KeybindList.Pos; self.State.InputBusy=true else self.State.KeybindList.Dragging=false end
+            end
+            
+            RCM.Rect(p, vector.create(mw, th, 0), self.Theme.Border, 1)
+            RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(mw-2, th-2, 0), self.Theme.Background, 1)
+            RCM.Rect(p, vector.create(mw, 2, 0), self.Theme.Accent, 1)
+            RCM.Label(vector.create(p.x + (mw/2) - 20, p.y + 5, 3), "Keybinds", self.Theme.Text)
+            
+            local ky = p.y + 26
+            for _, b in ipairs(itemsToShow) do
+                local col = b.active and self.Theme.Accent or self.Theme.TextDim
+                local kt = "["..b.key.."]"
+                local mt = (b.mode=="Hold" and "[H]") or (b.mode=="Toggle" and "[T]") or "[A]"
+                RCM.Label(vector.create(p.x+5, ky, 3), b.name, self.Theme.Text)
+                RCM.Label(vector.create(p.x+mw-(7*#kt)-(7*#mt)-10, ky, 3), kt..mt, col)
+                ky = ky + 18
+            end
+        end
+    end
+end
+
+-- Popup Draw Logic
+function RCM:DrawPopup()
+    if not self.State.ActivePopup then return end
+    local p = self.State.ActivePopup; local bind = p.BindItem; local pos = p.Pos
+    local opts = {"Hold", "Toggle", "Always"}; local w, h = 80, (#opts*20)+4
+    RCM.Rect(pos, vector.create(w, h, 0), self.Theme.Border, 1)
+    RCM.Rect(vector.create(pos.x+1, pos.y+1, 1), vector.create(w-2, h-2, 0), self.Theme.Background, 1)
+    local cy = pos.y + 2
+    for _, m in ipairs(opts) do
+        local op = vector.create(pos.x+2, cy, 20); local os = vector.create(w-4, 18, 0)
+        local hov = self:IsMouseOver(op, os)
+        if hov then
+            RCM.Rect(op, os, self.Theme.Accent, 0.8)
+            if self.State.MouseDown and not self.State.MouseHeld then bind.mode = m; self.State.ActivePopup = nil; return end
+        end
+        RCM.Label(vector.create(pos.x+5, cy+2, 21), m, (bind.mode==m or hov) and self.Theme.Text or self.Theme.TextDim)
+        cy = cy + 20
+    end
 end
 
 local function LibraryWindow(props)
@@ -276,7 +334,11 @@ local function LibraryWindow(props)
                         if hover and isleftpressed() and not RCM.State.InputBusy then
                             local pct = math.clamp((RCM.State.MousePos.x - (valX - 100)) / 100, 0, 1)
                             local nv = math.floor(item.min + (item.max - item.min) * pct)
-                            if nv ~= item.value then item.value = nv; if item.callback then item.callback(nv) end; if item.flag then RCM.Flags[item.flag] = nv end end
+                            if nv ~= item.value then 
+                                item.value = nv; 
+                                if item.callback then item.callback(nv) end 
+                                if item.flag then RCM.Flags[item.flag] = nv end
+                            end
                         end
                         RCM.Label(vector.create(nmX, cy + 3, 3), item.name, RCM.Theme.Text)
                         RCM.Label(vector.create(valX - 120, cy + 3, 3), tostring(item.value), RCM.Theme.Text)
@@ -285,8 +347,6 @@ local function LibraryWindow(props)
 
                     elseif item.type == "dropdown" then
                         if iClick then item.open = not item.open end
-                        
-                        -- MULTI-SELECT DISPLAY
                         local dispText = item.selected
                         if item.multi then
                             local active = {}
@@ -295,10 +355,8 @@ local function LibraryWindow(props)
                             elseif #active > 2 then dispText = #active .. " Selected"
                             else dispText = table.concat(active, ", ") end
                         end
-                        
                         RCM.Label(vector.create(nmX, cy+3, 3), FitText(item.name, 120), RCM.Theme.Text)
                         RCM.Label(vector.create(valX-(7*#dispText), cy+3, 3), dispText, RCM.Theme.Accent)
-
                         if item.open then
                             local dy = cy + 24
                             for _, opt in ipairs(item.options) do
@@ -317,10 +375,8 @@ local function LibraryWindow(props)
                                         end
                                     end
                                 end
-                                
                                 local isSel = false
                                 if item.multi then isSel = item.selected[opt] else isSel = (item.selected == opt) end
-                                
                                 RCM.Label(vector.create(sx+20, dy+2, 20), opt, isSel and RCM.Theme.Accent or RCM.Theme.Text)
                                 dy = dy + 20
                             end
@@ -357,6 +413,14 @@ local function LibraryWindow(props)
                             end
                             iH = iH + 70
                         end
+                    
+                    elseif item.type == "binder" then
+                        if iClick then item.listening = not item.listening end
+                        if iRClick then RCM.State.ActivePopup = { BindItem = item, Pos = RCM.State.MousePos } end
+                        local txt = "[" .. (item.listening and "..." or item.key) .. "]"
+                        local keyW = (7 * #txt)
+                        RCM.Label(vector.create(nmX, cy + 3, 3), FitText(item.name, 230 - keyW), RCM.Theme.Text)
+                        RCM.Label(vector.create(valX - keyW, cy + 3, 3), txt, item.listening and RCM.Theme.Accent or RCM.Theme.TextDim)
                     end
 
                     if item.tooltip then
@@ -394,6 +458,12 @@ local function LibraryWindow(props)
                 table.insert(sec.items, {type="colorpicker", name=p.Name, color=c, open=false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}) 
                 if p.Flag then RCM.Flags[p.Flag] = {R=c.R, G=c.G, B=c.B} end
             end
+            -- ADDED BACK THE MISSING BINDER METHOD
+            function sec:Binder(p) 
+                local b = {type="binder", name=p.Name, key=p.Default or "None", mode="Hold", active=false, listening=false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}
+                table.insert(sec.items, b); table.insert(RCM.Binders, b)
+                if p.Flag then RCM.Flags[p.Flag] = { Key = b.key, Mode = b.mode } end
+            end
             table.insert(pg.sections, sec)
             return sec
         end
@@ -413,6 +483,8 @@ function RCM:Init()
         self:UpdateBinders()
         self:DrawStandardInterface()
         for _, w in ipairs(self.Windows) do w:Draw() end
+        self:DrawPopup() -- Added Popup Draw logic back to Main Loop
+        
         -- Tooltip Render
         if self.State.ActiveTooltip and not self.State.ActivePopup then
             local t, m = self.State.ActiveTooltip, self.State.MousePos
