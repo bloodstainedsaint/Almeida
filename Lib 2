@@ -1,8 +1,7 @@
---[ RCM Library v11.4 | Upload this to GitHub ]--
-
+--[ RCM Library v11.5 | Update this on GitHub ]--
 local RCM = {}
 
-print("[RCM] Library Initialized v11.4 Stable")
+print("[RCM] Library Initialized v11.5 Stable")
 
 -- [ Configuration & Theme ]
 RCM.Theme = {
@@ -20,8 +19,8 @@ RCM.Theme = {
     SwitchBg     = Color3.fromRGB(50, 50, 60),
     ResizeHandle = Color3.fromRGB(255, 255, 255),
     EditModeText = Color3.fromRGB(255, 180, 50),
-    InfoWinBg    = Color3.fromRGB(25, 25, 30), -- Added missing key
-    TooltipBg    = Color3.fromRGB(25, 25, 30)  -- Added missing key
+    InfoWinBg    = Color3.fromRGB(25, 25, 30),
+    TooltipBg    = Color3.fromRGB(25, 25, 30)
 }
 
 RCM.Layer = { Base=1, Section=2, Item=3, Text=4, Widget=10, Popup=50, InfoWin=150, Tooltip=200, Snap=250, Notif=300 }
@@ -103,12 +102,11 @@ function RCM:UpdateInput()
 
     local keys = getpressedkeys()
     local isTogglePressed = false
-    -- Mapping basic keys for toggle check
+    -- Key mapping for Delete/Insert
     local KeyMap = { [46] = "Delete", [45] = "Insert" }
     
     if keys then 
         for _, k in ipairs(keys) do 
-            -- Simple check for numbers or strings depending on getpressedkeys implementation
             if k == RCM.State.ToggleKey or KeyMap[k] == RCM.State.ToggleKey then isTogglePressed = true break end 
         end 
     end
@@ -384,9 +382,18 @@ function RCM:DrawStandardInterface()
     end
 end
 
+-- [ Widget Drawers ]
+function RCM:HandleDraggableWidgets()
+    -- This method was previously missing
+    for _, wid in ipairs(RCM.Widgets) do 
+        RCM:HandleDraggable(wid)
+        if wid.draw then wid.draw() end
+    end
+end
+
+-- [ Info Windows ]
 function RCM:ProcessInfoWindowsInput()
     if not RCM.State.Enabled then return end
-    
     for i = #RCM.State.InfoWindows, 1, -1 do
         local win = RCM.State.InfoWindows[i]
         local w, hh = win.size.x, 26
@@ -398,42 +405,20 @@ function RCM:ProcessInfoWindowsInput()
 
         if not RCM.State.InputBusy or win.dragging then
             local click = RCM.State.MouseDown and not RCM.State.MouseHeld
-            
-            if click and RCM:IsMouseOver(vector.create(win.pos.x+w-25, win.pos.y+2, 0), vector.create(20,20,0)) then 
-                table.remove(RCM.State.InfoWindows, i)
-                RCM.State.InputBusy = true
-                return 
-            end
-            
-            if RCM:IsMouseOver(win.pos, vector.create(w, hh, 0)) and click then 
-                win.dragging = true
-                win.dragOffset = vector.create(RCM.State.MousePos.x-win.pos.x, RCM.State.MousePos.y-win.pos.y, 0)
-                table.insert(RCM.State.InfoWindows, table.remove(RCM.State.InfoWindows, i))
-                RCM.State.InputBusy = true
-                return 
-            end
-            
+            if click and RCM:IsMouseOver(vector.create(win.pos.x+w-25, win.pos.y+2, 0), vector.create(20,20,0)) then table.remove(RCM.State.InfoWindows, i); RCM.State.InputBusy = true; return end
+            if RCM:IsMouseOver(win.pos, vector.create(w, hh, 0)) and click then win.dragging = true; win.dragOffset = vector.create(RCM.State.MousePos.x-win.pos.x, RCM.State.MousePos.y-win.pos.y, 0); table.insert(RCM.State.InfoWindows, table.remove(RCM.State.InfoWindows, i)); RCM.State.InputBusy = true; return end
             if click and RCM:IsMouseOver(win.pos, win.size) then
                 local cy = win.pos.y + hh + 5
                 for _, item in ipairs(win.items) do
-                    if item.type=="link" and RCM:IsMouseOver(vector.create(win.pos.x+10,cy,0), vector.create(7*#item.text, 14, 0)) then 
-                        if item.callback then item.callback() end 
-                    end
+                    if item.type=="link" and RCM:IsMouseOver(vector.create(win.pos.x+10,cy,0), vector.create(7*#item.text, 14, 0)) then if item.callback then item.callback() end end
                     cy = cy + (item.type=="sep" and 8 or 16)
                 end
-                RCM.State.InputBusy = true
-                return
+                RCM.State.InputBusy = true; return
             end
         end
-        
         if win.dragging then 
-            if RCM.State.MouseDown then
-                local raw = vector.create(RCM.State.MousePos.x-win.dragOffset.x, RCM.State.MousePos.y-win.dragOffset.y, 0)
-                win.pos = RCM:CalculateDragSnap(win, raw)
-                RCM.State.InputBusy = true 
-            else 
-                win.dragging = false 
-            end
+            if RCM.State.MouseDown then local raw = vector.create(RCM.State.MousePos.x-win.dragOffset.x, RCM.State.MousePos.y-win.dragOffset.y, 0); win.pos = RCM:CalculateDragSnap(win, raw); RCM.State.InputBusy = true 
+            else win.dragging = false end
         end
     end
 end
@@ -443,33 +428,23 @@ function RCM:RenderInfoWindows()
     for i, win in ipairs(RCM.State.InfoWindows) do
         local w, hh = win.size.x, 26
         local z = RCM.Layer.InfoWin + i
-        
         RCM.Rect(win.pos, win.size, RCM.Theme.Border, 1)
         RCM.Rect(vector.create(win.pos.x+1,win.pos.y+1,z), vector.create(w-2, win.size.y-2, 0), RCM.Theme.InfoWinBg, 1)
         RCM.Rect(vector.create(win.pos.x+1,win.pos.y+1,z), vector.create(w-2, hh, 0), RCM.Theme.Header, 1)
-        
         RCM.Label(vector.create(win.pos.x+10, win.pos.y+6, z+1), win.title, RCM.Theme.Text)
         RCM.Label(vector.create(win.pos.x+w-18, win.pos.y+6, z+1), "x", RCM.Theme.Negative)
-        
         local cy = win.pos.y + hh + 5
         for _, item in ipairs(win.items) do
-            if item.type == "text" then 
-                RCM.Label(vector.create(win.pos.x+10, cy, z+1), item.text, RCM.Theme.TextDim); cy = cy + 16
+            if item.type == "text" then RCM.Label(vector.create(win.pos.x+10, cy, z+1), item.text, RCM.Theme.TextDim); cy = cy + 16
             elseif item.type == "link" then 
-                local col = RCM.Theme.Link
-                if RCM:IsMouseOver(vector.create(win.pos.x+10, cy, 0), vector.create(7*#item.text, 14, 0)) then col = RCM.Theme.Accent end
-                RCM.Label(vector.create(win.pos.x+10, cy, z+1), item.text, col)
-                RCM.Rect(vector.create(win.pos.x+10, cy+13, z+1), vector.create(7*#item.text, 1, 0), col, 1)
-                cy = cy + 16
-            elseif item.type == "sep" then 
-                RCM.Rect(vector.create(win.pos.x+10, cy+3, z+1), vector.create(w-20,1,0), RCM.Theme.Border, 0.5)
-                cy = cy + 8 
-            end
+                local col = RCM.Theme.Link; if RCM:IsMouseOver(vector.create(win.pos.x+10, cy, 0), vector.create(7*#item.text, 14, 0)) then col = RCM.Theme.Accent end
+                RCM.Label(vector.create(win.pos.x+10, cy, z+1), item.text, col); RCM.Rect(vector.create(win.pos.x+10, cy+13, z+1), vector.create(7*#item.text, 1, 0), col, 1); cy = cy + 16
+            elseif item.type == "sep" then RCM.Rect(vector.create(win.pos.x+10, cy+3, z+1), vector.create(w-20,1,0), RCM.Theme.Border, 0.5); cy = cy + 8 end
         end
     end
 end
 
--- Main Window
+-- [ Window System ]
 local function LibraryWindow(props)
     if props.ToggleKey then RCM.State.ToggleKey = props.ToggleKey end
     if RCM.Windows[1] then RCM.Windows[1].name = props.Name or RCM.Windows[1].name; return RCM.Windows[1] end
@@ -752,6 +727,7 @@ function RCM:Init()
         
         RCM:UpdateInput()
         RCM:UpdateBinders()
+        
         RCM:ProcessInfoWindowsInput()
         
         RCM:DrawStandardInterface()
@@ -772,5 +748,4 @@ function RCM:Init()
     end)
 end
 
--- RCM:Init() is REMOVED from here to allow the loader to call it.
 return RCM
