@@ -1,10 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v9.0 (Core)
--- Features: Modular Widget System, Center Snapping, Host Architecture
+-- [ RCM ] Severe UI Library v9.1 (Advanced Snapping)
+-- Features: Modular Host, Smart Edge Snapping, Proximity Fading
+-- Update: Snapping now includes Screen Edges and smooth fade-in visuals.
 
 local RCM = {}
 
-print("[RCM] Library Initialized v9.0 Core")
+print("[RCM] Library Initialized v9.1 Core")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -16,7 +17,7 @@ RCM.Theme = {
     TextDim    = Color3.new(0.5, 0.5, 0.5),
     Hover      = Color3.new(0.16, 0.16, 0.16),
     TooltipBg  = Color3.new(0.05, 0.05, 0.05),
-    SnapLine   = Color3.new(0.2, 0.8, 0.2), -- Green lines for snapping
+    SnapLine   = Color3.new(0.2, 0.8, 0.2), -- Green Snap Lines
     InfoWinBg  = Color3.new(0.1, 0.1, 0.1),
     Link       = Color3.new(0.4, 0.6, 1),
     Section    = Color3.new(0.25, 0.25, 0.25),
@@ -39,21 +40,20 @@ RCM.State = {
     KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) },
     InfoWindows = {},
     InputBusy = false,
-    Snapping = { ActiveX = false, ActiveY = false }, -- Snapping State
+    Snapping = { ActiveLines = {} }, -- Stores lines to draw {Start, End, Alpha}
     LastTick = 0, FrameCount = 0, CurrentFPS = 60
 }
 
--- The Modular Registries
 RCM.Binders = {}
 RCM.Notifications = {}
 RCM.Windows = {} 
-RCM.Widgets = {} -- New: External widgets live here
+RCM.Widgets = {} 
 RCM.Flags = {} 
 
 -- [ 3 ] Helpers
 function RCM.Rect(pos, size, color, alpha) DrawingImmediate.FilledRectangle(pos, size, color, alpha or 1) end
 function RCM.Label(pos, text, color, center) DrawingImmediate.Text(pos, 13, color, 1, text, center or false, "Proggy") end
-function RCM.Line(a, b, color, thickness) DrawingImmediate.Line(a, b, color, 1, 1, thickness or 1) end
+function RCM.Line(a, b, color, alpha, thickness) DrawingImmediate.Line(a, b, color, alpha, 1, thickness or 1) end
 
 local function FitText(text, maxWidth)
     local charWidth = 7 
@@ -86,7 +86,8 @@ function RCM:UpdateInput()
         self.State.Watermark.Dragging = false; self.State.KeybindList.Dragging = false
         for _, win in ipairs(self.State.InfoWindows) do win.dragging = false end
         for _, win in ipairs(RCM.Windows) do win.dragging = false end
-        for _, wid in ipairs(RCM.Widgets) do wid.dragging = false end -- Widget dragging reset
+        for _, wid in ipairs(RCM.Widgets) do wid.dragging = false end
+        self.State.Snapping.ActiveLines = {} -- Clear lines when not dragging
     end
 
     local rDown = isrightpressed()
@@ -146,46 +147,80 @@ function RCM:SetWatermark(text) self.State.Watermark.Text = text end
 function RCM:Notify(msg, duration) table.insert(self.Notifications, {id = tick()..math.random(), text = msg, duration = duration or 3, start = tick(), alpha = 0}) end
 
 -- ============================================================================
--- [ 5 ] SNAPPING SYSTEM
+-- [ 5 ] ADVANCED SNAPPING SYSTEM
 -- ============================================================================
--- Calculates new position based on proximity to center lines
-function RCM:CalculateSnap(objPos, objSize)
-    local snapPos = objPos
+-- Features: Edge Snapping, Center Snapping, Proximity Fade
+function RCM:CalculateSnap(rawPos, objSize)
+    local snapPos = rawPos
     local screen = self.State.ScreenSize
-    local center = vector.create(screen.x / 2, screen.y / 2, 0)
+    local threshold = 25 -- Distance to start fading in
+    local lockDist = 8   -- Distance to hard lock
     
-    local objCenter = vector.create(objPos.x + (objSize.x / 2), objPos.y + (objSize.y / 2), 0)
-    local threshold = 20 -- Pixels distance to trigger snap
+    self.State.Snapping.ActiveLines = {} 
+
+    -- Define Screen Targets
+    local targetsX = { 0, screen.x / 2, screen.x } -- Left, Center, Right
+    local targetsY = { 0, screen.y / 2, screen.y } -- Top, Center, Bottom
     
-    self.State.Snapping.ActiveX = false
-    self.State.Snapping.ActiveY = false
-    
-    -- Check X (Vertical Line)
-    if math.abs(objCenter.x - center.x) < threshold then
-        snapPos = vector.create(center.x - (objSize.x / 2), snapPos.y, 0)
-        self.State.Snapping.ActiveX = true
+    -- Define Object Anchors relative to current pos
+    -- We calculate offsets: 0 (Left/Top), Size/2 (Mid), Size (Right/Bottom)
+    local anchorsX = { 0, objSize.x / 2, objSize.x }
+    local anchorsY = { 0, objSize.y / 2, objSize.y }
+
+    -- Helper to process axis
+    local function CheckAxis(currentVal, anchors, targets, isX)
+        local bestSnap = nil
+        local minDiff = threshold
+        
+        for _, anchorOffset in ipairs(anchors) do
+            local point = currentVal + anchorOffset
+            for _, target in ipairs(targets) do
+                local diff = math.abs(point - target)
+                
+                -- Fade Logic
+                if diff < threshold then
+                    local alpha = 1 - (diff / threshold) -- 0 to 1
+                    
+                    -- Visual Line Data
+                    local lineStart, lineEnd
+                    if isX then
+                        lineStart = vector.create(target, 0, RCM.Layer.Snap)
+                        lineEnd = vector.create(target, screen.y, 0)
+                    else
+                        lineStart = vector.create(0, target, RCM.Layer.Snap)
+                        lineEnd = vector.create(screen.x, target, 0)
+                    end
+                    table.insert(self.State.Snapping.ActiveLines, { A = lineStart, B = lineEnd, Alpha = alpha })
+                    
+                    -- Hard Snap Logic
+                    if diff < lockDist and diff < minDiff then
+                        minDiff = diff
+                        bestSnap = target - anchorOffset
+                    end
+                end
+            end
+        end
+        return bestSnap or currentVal
     end
-    
-    -- Check Y (Horizontal Line)
-    if math.abs(objCenter.y - center.y) < threshold then
-        snapPos = vector.create(snapPos.x, center.y - (objSize.y / 2), 0)
-        self.State.Snapping.ActiveY = true
-    end
+
+    snapPos = vector.create(
+        CheckAxis(rawPos.x, anchorsX, targetsX, true),
+        CheckAxis(rawPos.y, anchorsY, targetsY, false),
+        0
+    )
     
     return snapPos
 end
 
 function RCM:DrawSnapLines()
-    -- Only draw if dragging something and snapped
     if not self.State.InputBusy then return end 
-    local screen = self.State.ScreenSize
-    local center = vector.create(screen.x / 2, screen.y / 2, 0)
-    
-    if self.State.Snapping.ActiveX then
-        RCM.Line(vector.create(center.x, 0, RCM.Layer.Snap), vector.create(center.x, screen.y, 0), self.Theme.SnapLine, 1)
-    end
-    if self.State.Snapping.ActiveY then
-        RCM.Line(vector.create(0, center.y, RCM.Layer.Snap), vector.create(screen.x, center.y, 0), self.Theme.SnapLine, 1)
+    for _, line in ipairs(self.State.Snapping.ActiveLines) do
+        -- Draw main line
+        RCM.Line(line.A, line.B, self.Theme.SnapLine, line.Alpha, 1)
+        -- Draw glowing effect (thicker, lower alpha)
+        if line.Alpha > 0.5 then
+            RCM.Line(line.A, line.B, self.Theme.SnapLine, line.Alpha * 0.3, 3)
+        end
     end
 end
 
@@ -193,13 +228,12 @@ end
 -- [ 6 ] WIDGET & WINDOW SYSTEM
 -- ============================================================================
 
--- Function to add a standalone Widget
 function RCM:CreateWidget(props)
     local widget = {
         name = props.Name or "Widget",
         pos = props.Position or vector.create(100, 100, 0),
         size = props.Size or vector.create(100, 100, 0),
-        draw = props.Draw, -- Callback function for rendering content
+        draw = props.Draw, 
         dragging = false,
         dragOffset = vector.create(0,0,0)
     }
@@ -211,7 +245,6 @@ function RCM:HandleDraggable(obj)
     local click = self.State.MouseDown and not self.State.MouseHeld
     
     if not self.State.InputBusy then
-        -- Check if mouse over object
         if click and self:IsMouseOver(obj.pos, obj.size) then
             obj.dragging = true
             obj.dragOffset = vector.create(self.State.MousePos.x - obj.pos.x, self.State.MousePos.y - obj.pos.y, 0)
@@ -221,13 +254,10 @@ function RCM:HandleDraggable(obj)
     if obj.dragging then
         if self.State.MouseDown then
             local rawPos = vector.create(self.State.MousePos.x - obj.dragOffset.x, self.State.MousePos.y - obj.dragOffset.y, 0)
-            -- Apply Snapping
-            obj.pos = self:CalculateSnap(rawPos, obj.size)
+            obj.pos = self:CalculateSnap(rawPos, obj.size) -- Apply Advanced Snap
             self.State.InputBusy = true
         else
             obj.dragging = false
-            self.State.Snapping.ActiveX = false
-            self.State.Snapping.ActiveY = false
         end
     end
 end
@@ -235,7 +265,6 @@ end
 -- Main Window Logic
 local function LibraryWindow(props)
     if props.ToggleKey then RCM.State.ToggleKey = props.ToggleKey end
-    -- Check if window already exists (Singleton for Modularity)
     if RCM.Windows[1] then 
         RCM.Windows[1].name = props.Name or RCM.Windows[1].name
         return RCM.Windows[1] 
@@ -244,16 +273,13 @@ local function LibraryWindow(props)
     local window = { 
         name = props.Name or "UI", 
         pos = props.Position or vector.create(200,200,0), 
-        size = vector.create(WIN_W, 30, 0), -- Dynamic height
+        size = vector.create(WIN_W, 30, 0), 
         dragging=false, dragOffset=vector.create(0,0,0), pages={}, activePage=1 
     }
 
     function window:Draw()
         if not RCM.State.Enabled then return end
         
-        -- Handle Dragging with Snapping
-        -- We override size for hit detection to header only initially, but logic needs full window
-        -- Let's calculate full height first
         local page = self.pages[self.activePage]; local lY, rY = 55, 55
         if page then
             for _, s in ipairs(page.sections) do
@@ -270,21 +296,18 @@ local function LibraryWindow(props)
         local totalH = math.max(lY, rY)
         self.size = vector.create(WIN_W, totalH + 10, 0)
 
-        -- Handle Drag Logic (Centralized)
         RCM:HandleDraggable(self)
 
         local x, y = self.pos.x, self.pos.y
         local click = RCM.State.MouseDown and not RCM.State.MouseHeld
         if RCM.State.InputBusy and not self.dragging then click = false end
 
-        -- Draw Main Box
         RCM.Rect(vector.create(x,y,0), self.size, RCM.Theme.Border, 1)
         RCM.Rect(vector.create(x+1,y+1,1), vector.create(WIN_W-2, totalH+8,0), RCM.Theme.Background, 1)
         RCM.Rect(vector.create(x,y,2), vector.create(WIN_W,2,0), RCM.Theme.Accent, 1)
         RCM.Label(vector.create(x+10,y+5,3), self.name, RCM.Theme.Text)
         RCM.Rect(vector.create(x+10,y+45,3), vector.create(WIN_W-20,1,0), RCM.Theme.Section, 1)
 
-        -- Tabs
         local tx = 10
         for i, pg in ipairs(self.pages) do
             local w = (7*#pg.name)+20
@@ -294,7 +317,6 @@ local function LibraryWindow(props)
             tx = tx + w
         end
 
-        -- Items
         if page then
             for _, sect in ipairs(page.sections) do
                 local sx = (sect.side == "Left") and (x+12) or (x+12+COL_W+10); local sy = y+sect.ry
@@ -417,9 +439,7 @@ local function LibraryWindow(props)
     end
     
     function window:Page(p)
-        -- Check if page exists (for extensions)
         for _, pg in ipairs(self.pages) do if pg.name == p.Name then return pg end end
-        
         local pg = {name=p.Name, sections={}}
         function pg:Section(p)
             local sec = {name=p.Name, side=p.Side or "Left", items={}}
@@ -455,10 +475,10 @@ function RCM:OpenInfoWindow(title, content)
     end
     local last = self.State.InfoWindows[#self.State.InfoWindows]
     local spawn = last and vector.create(last.pos.x+20, last.pos.y+20, 0) or vector.create((self.State.ScreenSize.x/2)-150, (self.State.ScreenSize.y/2)-100, 0)
-    table.insert(self.State.InfoWindows, {id=tick()..math.random(), title=title, items=processedLines, pos=spawn, dragging=false, dragOffset=vector.create(0,0,0)})
+    local win = {id=tick()..math.random(), title=title, items=processedLines, pos=spawn, dragging=false, dragOffset=vector.create(0,0,0), size=vector.create(300, 200, 0)} -- Added size for snap logic
+    table.insert(self.State.InfoWindows, win)
 end
 
--- Info Window Rendering
 function RCM:DrawInfoWindows()
     if not self.State.Enabled then return end
     for i = #self.State.InfoWindows, 1, -1 do
@@ -466,6 +486,7 @@ function RCM:DrawInfoWindows()
         local w, hh, ch = 300, 22, 10
         for _, it in ipairs(win.items) do ch=ch+(it.type=="sep" and 8 or 16) end
         local th = hh + ch
+        win.size = vector.create(w, th, 0) -- Update size for snapping
         
         -- Logic
         if not self.State.InputBusy or win.dragging then
@@ -480,14 +501,17 @@ function RCM:DrawInfoWindows()
                 end
             end
         end
+        
         if win.dragging then 
-            local raw = vector.create(self.State.MousePos.x-win.dragOffset.x, self.State.MousePos.y-win.dragOffset.y, 0)
-            win.pos = self:CalculateSnap(raw, vector.create(w, th, 0))
-            self.State.InputBusy=true 
+            if self.State.MouseDown then
+                local raw = vector.create(self.State.MousePos.x-win.dragOffset.x, self.State.MousePos.y-win.dragOffset.y, 0)
+                win.pos = self:CalculateSnap(raw, win.size) -- Snapping
+                self.State.InputBusy=true 
+            else win.dragging = false end
         end
 
         -- Render
-        RCM.Rect(win.pos, vector.create(w, th, 0), self.Theme.Border, 1)
+        RCM.Rect(win.pos, win.size, self.Theme.Border, 1)
         RCM.Rect(vector.create(win.pos.x+1,win.pos.y+1,RCM.Layer.InfoWin+i), vector.create(w-2, th-2, 0), self.Theme.InfoWinBg, 1)
         RCM.Rect(win.pos, vector.create(w, 2, 0), self.Theme.Accent, 1)
         RCM.Label(vector.create(win.pos.x+10, win.pos.y+4, RCM.Layer.InfoWin+i+1), win.title, self.Theme.Text)
@@ -507,6 +531,7 @@ function RCM:DrawInfoWindows()
 end
 
 function RCM:DrawStandardInterface()
+    -- Watermark
     if self.State.Watermark.Visible then
         local p, t = self.State.Watermark.Pos, self.State.Watermark.Text
         if self.State.Watermark.Extra then 
@@ -520,9 +545,11 @@ function RCM:DrawStandardInterface()
         if self.State.Enabled and not self.State.InputBusy then
             if self.State.MouseDown and not self.State.MouseHeld and self:IsMouseOver(p, sz) then self.State.Watermark.Dragging = true; self.State.Watermark.Offset = vector.create(self.State.MousePos.x-p.x, self.State.MousePos.y-p.y, 0) end
             if self.State.Watermark.Dragging then
-                local raw = vector.create(self.State.MousePos.x-self.State.Watermark.Offset.x, self.State.MousePos.y-self.State.Watermark.Offset.y, 0)
-                p = self:CalculateSnap(raw, sz); self.State.Watermark.Pos = p
-                self.State.InputBusy = true
+                if self.State.MouseDown then
+                    local raw = vector.create(self.State.MousePos.x-self.State.Watermark.Offset.x, self.State.MousePos.y-self.State.Watermark.Offset.y, 0)
+                    p = self:CalculateSnap(raw, sz); self.State.Watermark.Pos = p
+                    self.State.InputBusy = true
+                else self.State.Watermark.Dragging = false end
             end
         end
         RCM.Rect(p, sz, self.Theme.Border, 1); RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(sz.x-2,sz.y-2,0), self.Theme.Background, 1)
@@ -600,7 +627,7 @@ function RCM:Init()
         
         self:DrawStandardInterface()
         for _, w in ipairs(self.Windows) do w:Draw() end
-        self:HandleDraggableWidgets() -- For modular widgets
+        self:HandleDraggableWidgets() 
         
         self:DrawInfoWindows()
         self:DrawPopup()
