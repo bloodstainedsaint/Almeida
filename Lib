@@ -1,6 +1,6 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v7.5 (RELEASE)
--- Fixed: Binder Right-Click Context Menu (Restored missing input var)
+-- [ RCM ] Severe UI Library v7.5 (FIXED)
+-- Fixed: Tooltip (?) visibility (Replaced nil color with TextDim)
 
 local RCM = {}
 local Library = {}
@@ -18,7 +18,9 @@ RCM.Theme = {
     Hover      = Color3.new(0.16, 0.16, 0.16),
     TooltipBg  = Color3.new(0.05, 0.05, 0.05),
     InfoWinBg  = Color3.new(0.1, 0.1, 0.1),
-    Link       = Color3.new(0.4, 0.6, 1)
+    Link       = Color3.new(0.4, 0.6, 1),
+    -- Added fallback for other items using 'Section'
+    Section    = Color3.new(0.25, 0.25, 0.25) 
 }
 
 RCM.Layer = { Base = 0, Section = 1, Item = 2, Text = 3, Popup = 20, InfoWin = 100, Notif = 200, Tooltip = 300 }
@@ -659,11 +661,13 @@ function Library:Window(props)
                         end
                     end
 
+                    -- [ FIX ] HERE
                     if item.tooltip then
                         local nameW = (7 * #displayName)
                         local tipX = nameX + nameW + 8
                         local tipPos = vector.create(tipX, cy + 3, zItem)
-                        RCM.Label(tipPos, "(?)", RCM.Theme.Section)
+                        -- Was: RCM.Theme.Section (nil), Changed to: RCM.Theme.TextDim
+                        RCM.Label(tipPos, "(?)", RCM.Theme.TextDim)
                         if RCM:IsMouseOver(tipPos, vector.create(15, 13, 0)) then RCM.State.ActiveTooltip = item.tooltip end
                     end
 
