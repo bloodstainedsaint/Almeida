@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v8.3 (Stable)
+-- [ RCM ] Severe UI Library v8.4 (Stable)
 -- Features: Multi-Select, Binders, Tooltips, Runtime Flags
--- Fixed: Tooltip Stuck Bug (Resets state every frame)
+-- Fixed: InfoWindows not rendering (Restored Logic)
 
 local RCM = {}
 
-print("[RCM] Library Initialized v8.3 Stable")
+print("[RCM] Library Initialized v8.4 Stable")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -19,7 +19,8 @@ RCM.Theme = {
     TooltipBg  = Color3.new(0.05, 0.05, 0.05),
     InfoWinBg  = Color3.new(0.1, 0.1, 0.1),
     Link       = Color3.new(0.4, 0.6, 1),
-    Section    = Color3.new(0.25, 0.25, 0.25)
+    Section    = Color3.new(0.25, 0.25, 0.25),
+    Negative   = Color3.new(1, 0.3, 0.3)
 }
 
 RCM.Layer = { Base = 0, Section = 1, Item = 2, Text = 3, Popup = 20, InfoWin = 100, Notif = 200, Tooltip = 300 }
@@ -140,6 +141,11 @@ function RCM:Notify(msg, duration) table.insert(self.Notifications, {id = tick()
 
 -- [ 4 ] WINDOW & DRAWING LOGIC
 function RCM:OpenInfoWindow(title, content)
+    -- Remove existing window with same title if exists (to prevent duplicates)
+    for i, win in ipairs(self.State.InfoWindows) do
+        if win.title == title then table.remove(self.State.InfoWindows, i) break end
+    end
+
     local processedLines = {}
     if type(content) == "table" then
         for _, item in ipairs(content) do
@@ -150,8 +156,90 @@ function RCM:OpenInfoWindow(title, content)
             end
         end
     end
-    local center = vector.create((self.State.ScreenSize.x / 2) - 150, (self.State.ScreenSize.y / 2) - 100, 0)
-    table.insert(self.State.InfoWindows, {id=tick()..math.random(), title=title, items=processedLines, pos=center, dragging=false, dragOffset=vector.create(0,0,0)})
+    -- Offset spawn position based on previous window
+    local last = self.State.InfoWindows[#self.State.InfoWindows]
+    local spawn = last and vector.create(last.pos.x+20, last.pos.y+20, 0) or vector.create((self.State.ScreenSize.x/2)-150, (self.State.ScreenSize.y/2)-100, 0)
+    
+    table.insert(self.State.InfoWindows, {id=tick()..math.random(), title=title, items=processedLines, pos=spawn, dragging=false, dragOffset=vector.create(0,0,0)})
+end
+
+-- RESTORED: Info Window Logic (Draggable, Close, Links)
+function RCM:UpdateInfoWindowsLogic()
+    if not self.State.Enabled then return end
+    for i = #self.State.InfoWindows, 1, -1 do
+        local win = self.State.InfoWindows[i]
+        local w, headerH = 300, 22
+        local contentH = 10
+        for _, it in ipairs(win.items) do if it.type=="sep" then contentH=contentH+8 else contentH=contentH+16 end end
+        local totalH = headerH + contentH
+        
+        if not self.State.InputBusy or win.dragging then
+            local click = self.State.MouseDown and not self.State.MouseHeld
+            -- Check Close
+            local closePos = vector.create(win.pos.x + w - 20, win.pos.y + 2, 0)
+            if click and self:IsMouseOver(closePos, vector.create(18,18,0)) then table.remove(self.State.InfoWindows, i); return end
+            
+            -- Check Drag
+            if self:IsMouseOver(win.pos, vector.create(w, headerH, 0)) and click then
+                win.dragging = true; win.dragOffset = vector.create(self.State.MousePos.x - win.pos.x, self.State.MousePos.y - win.pos.y, 0)
+                -- Bring to front
+                table.insert(self.State.InfoWindows, table.remove(self.State.InfoWindows, i)); return
+            end
+            
+            -- Check Links
+            if click and self:IsMouseOver(win.pos, vector.create(w, totalH, 0)) then
+                local cy = win.pos.y + headerH + 5
+                for _, item in ipairs(win.items) do
+                    if item.type == "link" then
+                        local lw = (7 * #item.text)
+                        if self:IsMouseOver(vector.create(win.pos.x+10, cy, 0), vector.create(lw, 14, 0)) then
+                            if item.callback then item.callback() end
+                        end
+                    end
+                    cy = cy + (item.type=="sep" and 8 or 16)
+                end
+            end
+        end
+        
+        if win.dragging then
+            win.pos = vector.create(self.State.MousePos.x - win.dragOffset.x, self.State.MousePos.y - win.dragOffset.y, 0)
+            self.State.InputBusy = true
+        end
+    end
+end
+
+-- RESTORED: Info Window Rendering
+function RCM:DrawInfoWindowsRender()
+    for i, win in ipairs(self.State.InfoWindows) do
+        local pos = win.pos; local w = 300; local hh = 22
+        local ch = 10; for _,it in ipairs(win.items) do ch=ch+(it.type=="sep" and 8 or 16) end
+        local th = hh + ch
+        local zb = RCM.Layer.InfoWin + i
+        
+        RCM.Rect(pos, vector.create(w, th, 0), self.Theme.Border, 1)
+        RCM.Rect(vector.create(pos.x+1,pos.y+1,zb), vector.create(w-2, th-2, 0), self.Theme.InfoWinBg, 1)
+        RCM.Rect(pos, vector.create(w, 2, 0), self.Theme.Accent, 1)
+        RCM.Label(vector.create(pos.x+10, pos.y+4, zb+1), win.title, self.Theme.Text)
+        RCM.Label(vector.create(pos.x+w-15, pos.y+4, zb+1), "X", self.Theme.Negative)
+        
+        local cy = pos.y + hh + 5
+        for _, item in ipairs(win.items) do
+            if item.type == "text" then
+                RCM.Label(vector.create(pos.x+10, cy, zb+1), item.text, self.Theme.TextDim)
+                cy = cy + 16
+            elseif item.type == "link" then
+                local col = self.Theme.Link
+                local lw = (7*#item.text)
+                if self.State.Enabled and not self.State.InputBusy and self:IsMouseOver(vector.create(pos.x+10, cy, 0), vector.create(lw, 14, 0)) then col = self.Theme.Accent end
+                RCM.Label(vector.create(pos.x+10, cy, zb+1), item.text, col)
+                RCM.Rect(vector.create(pos.x+10, cy+13, zb+1), vector.create(lw, 1, 0), col, 1)
+                cy = cy + 16
+            elseif item.type == "sep" then
+                RCM.Rect(vector.create(pos.x+10, cy+3, zb+1), vector.create(w-20, 1, 0), self.Theme.Border, 0.5)
+                cy = cy + 8
+            end
+        end
+    end
 end
 
 function RCM:DrawStandardInterface()
@@ -464,10 +552,19 @@ function RCM:Init()
     ren:Connect(function()
         self.State.InputBusy = false
         self.State.ActiveTooltip = nil -- [FIX] Reset tooltip every frame
+        
         self:UpdateInput()
         self:UpdateBinders()
+        
+        -- UPDATED: Added these two lines to render the info windows
+        self:UpdateInfoWindowsLogic()
         self:DrawStandardInterface()
+        
         for _, w in ipairs(self.Windows) do w:Draw() end
+        
+        -- UPDATED: Render Info Windows on top
+        self:DrawInfoWindowsRender()
+        
         self:DrawPopup()
         if self.State.ActiveTooltip and not self.State.ActivePopup and self.State.Enabled then
             local t, m = self.State.ActiveTooltip, self.State.MousePos
