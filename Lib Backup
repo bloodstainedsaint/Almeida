@@ -1,11 +1,11 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v9.6 (Stable)
--- Features: Modular Host, Widget Snapping, Resizing
--- Update: Resize Brackets are now thicker and more visible.
+-- [ RCM ] Severe UI Library v10.0 (Layout Engine)
+-- Features: Edit Mode, Z-Index Layering, Widget Locking
+-- Update: Added Right-Click Context Menu for Layering. Widgets locked until Edit Mode active.
 
 local RCM = {}
 
-print("[RCM] Library Initialized v9.6 Stable")
+print("[RCM] Library Initialized v10.0 Layout Engine")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -22,20 +22,23 @@ RCM.Theme = {
     Link       = Color3.new(0.4, 0.6, 1),
     Section    = Color3.new(0.25, 0.25, 0.25),
     Negative   = Color3.new(1, 0.3, 0.3),
-    ResizeHandle = Color3.new(0.5, 0.5, 0.5) -- Made slightly brighter by default
+    ResizeHandle = Color3.new(0.6, 0.6, 0.6),
+    EditModeText = Color3.new(1, 0.8, 0.2) -- Yellow indicator for Edit Mode
 }
 
-RCM.Layer = { Base=0, Section=1, Item=2, Text=3, Widget=10, Popup=20, InfoWin=100, Snap=150, Notif=200, Tooltip=300 }
+RCM.Layer = { Base=0, Section=1, Item=2, Text=3, Widget=10, Popup=500, InfoWin=100, Snap=400, Notif=600, Tooltip=700 }
 local WIN_W, COL_W = 550, 260
 
 -- [ 2 ] State & Registry
 RCM.State = {
     Enabled = true,
+    EditMode = false, -- NEW: Master switch for moving widgets
     MousePos = vector.create(0, 0, 0),
     MouseDown = false, MouseHeld = false,
     RightMouseDown = false, RightMouseHeld = false,
     ToggleKey = "Delete", LastToggle = 0,
-    ActiveTooltip = nil, ActivePopup = nil,
+    ActiveTooltip = nil, 
+    ActivePopup = nil, -- Now handles Binders AND Widgets
     ScreenSize = vector.create(1920, 1080, 0),
     Watermark = { Visible = true, Text = "Severe UI", Extra = true, Pos = vector.create(50, 50, 0), Dragging = false, Offset = vector.create(0,0,0) },
     KeybindList = { Visible = true, Mode = "Always", Pos = vector.create(50, 100, 0), Dragging = false, Offset = vector.create(0,0,0) },
@@ -97,9 +100,13 @@ function RCM:UpdateInput()
     elseif rDown and RCM.State.RightMouseDown then RCM.State.RightMouseHeld = true
     elseif not rDown then RCM.State.RightMouseDown = false; RCM.State.RightMouseHeld = false end
 
+    -- Close Popup logic
     if RCM.State.MouseDown and not RCM.State.MouseHeld and RCM.State.ActivePopup then
         local p = RCM.State.ActivePopup
         local size = p.Size or vector.create(80, 64, 0)
+        -- Custom size check for Widget Menu
+        if p.Type == "Widget" then size = vector.create(120, 44, 0) end
+        
         if not RCM:IsMouseOver(p.Pos, size) then RCM.State.ActivePopup = nil end
     end
 
@@ -147,10 +154,25 @@ end
 
 function RCM:SetWatermark(text) RCM.State.Watermark.Text = text end
 function RCM:Notify(msg, duration) table.insert(RCM.Notifications, {id = tick()..math.random(), text = msg, duration = duration or 3, start = tick(), alpha = 0}) end
+function RCM:SetEditMode(val) RCM.State.EditMode = val end
 
 -- ============================================================================
--- [ 5 ] SNAPPING & RESIZING SYSTEM
+-- [ 5 ] SNAPPING & LAYERING
 -- ============================================================================
+
+function RCM:ReorderWidget(widget, action)
+    -- Find index
+    local index = nil
+    for i, w in ipairs(RCM.Widgets) do if w == widget then index = i break end end
+    if not index then return end
+    
+    table.remove(RCM.Widgets, index)
+    if action == "Front" then
+        table.insert(RCM.Widgets, widget) -- End of table = Draw Last = Top
+    elseif action == "Back" then
+        table.insert(RCM.Widgets, 1, widget) -- Start of table = Draw First = Bottom
+    end
+end
 
 function RCM:GetSnapTargets(currentObj)
     local screen = RCM.State.ScreenSize
@@ -251,8 +273,8 @@ end
 function RCM:DrawSnapLines()
     if not RCM.State.InputBusy then return end 
     for _, line in ipairs(RCM.State.Snapping.ActiveLines) do
-        RCM.Line(line.A, line.B, RCM.Theme.SnapLine, line.Alpha, 1)
-        if line.Alpha > 0.5 then RCM.Line(line.A, line.B, RCM.Theme.SnapLine, line.Alpha * 0.3, 3) end
+        RCM.Line(line.A, line.B, RCM.Theme.SnapLine, line.Alpha, 2)
+        if line.Alpha > 0.5 then RCM.Line(line.A, line.B, RCM.Theme.SnapLine, line.Alpha * 0.3, 4) end
     end
 end
 
@@ -276,28 +298,34 @@ function RCM:CreateWidget(props)
 end
 
 function RCM:HandleDraggable(obj)
-    -- [ FIX ] Lock interaction if menu is closed
-    if not RCM.State.Enabled then
+    local click = RCM.State.MouseDown and not RCM.State.MouseHeld
+    local rClick = RCM.State.RightMouseDown and not RCM.State.RightMouseHeld
+    local hovered = RCM:IsMouseOver(obj.pos, obj.size)
+
+    -- [ NEW ] Edit Mode Check
+    if not RCM.State.EditMode then
         obj.dragging = false
         obj.resizing = false
         return
     end
 
-    local click = RCM.State.MouseDown and not RCM.State.MouseHeld
-    
     if not RCM.State.InputBusy then
-        -- 1. Check Resize (Bottom Right Corner)
+        -- Layering Context Menu
+        if hovered and rClick then
+            RCM.State.ActivePopup = { Type = "Widget", Obj = obj, Pos = RCM.State.MousePos }
+        end
+
+        -- 1. Check Resize (Bottom Right)
         if obj.resizable then
             local handleSize = 15
             local handlePos = vector.create(obj.pos.x + obj.size.x - handleSize, obj.pos.y + obj.size.y - handleSize, 0)
-            
             if click and RCM:IsMouseOver(handlePos, vector.create(handleSize, handleSize, 0)) then
                 obj.resizing = true
             end
         end
 
-        -- 2. Check Drag (Rest of body)
-        if not obj.resizing and click and RCM:IsMouseOver(obj.pos, obj.size) then
+        -- 2. Check Drag (Body)
+        if not obj.resizing and click and hovered then
             obj.dragging = true
             obj.dragOffset = vector.create(RCM.State.MousePos.x - obj.pos.x, RCM.State.MousePos.y - obj.pos.y, 0)
         end
@@ -321,16 +349,14 @@ function RCM:HandleDraggable(obj)
         end
     end
 
-    -- [ FIX ] Draw THICKER "L" Bracket for Resize Handle
-    if obj.resizable and RCM.State.Enabled then
-        local p = obj.pos; local s = obj.size; local hs = 12 -- Handle Size increased to 12
-        local c = (obj.resizing or RCM:IsMouseOver(vector.create(p.x+s.x-15, p.y+s.y-15, 0), vector.create(15,15,0))) and RCM.Theme.Accent or RCM.Theme.ResizeHandle
+    -- Draw Visuals (L Bracket) only in Edit Mode
+    if obj.resizable and RCM.State.Enabled and RCM.State.EditMode then
+        local p = obj.pos; local s = obj.size; local hs = 15 -- Handle Size
+        local c = (obj.resizing or RCM:IsMouseOver(vector.create(p.x+s.x-hs, p.y+s.y-hs, 0), vector.create(hs,hs,0))) and RCM.Theme.Accent or RCM.Theme.ResizeHandle
         local z = RCM.Layer.Widget+5
-        local thick = 3 -- Thickness increased to 3
+        local thick = 3
         
-        -- Horizontal Line
         RCM.Line(vector.create(p.x+s.x, p.y+s.y, z), vector.create(p.x+s.x-hs, p.y+s.y, z), c, 1, thick)
-        -- Vertical Line
         RCM.Line(vector.create(p.x+s.x, p.y+s.y, z), vector.create(p.x+s.x, p.y+s.y-hs, z), c, 1, thick)
     end
 end
@@ -378,7 +404,7 @@ local function LibraryWindow(props)
         if RCM.State.InputBusy and not self.dragging then click = false end
 
         RCM.Rect(vector.create(x,y,0), self.size, RCM.Theme.Border, 1)
-        RCM.Rect(vector.create(x+1,y+1,1), vector.create(WIN_W-2, totalH+8,0), RCM.Theme.Background, 1)
+        RCM.Rect(vector.create(x+2,y+2,1), vector.create(WIN_W-4, totalH+8,0), RCM.Theme.Background, 1)
         RCM.Rect(vector.create(x,y,2), vector.create(WIN_W,2,0), RCM.Theme.Accent, 1)
         RCM.Label(vector.create(x+10,y+5,3), self.name, RCM.Theme.Text)
         RCM.Rect(vector.create(x+10,y+45,3), vector.create(WIN_W-20,1,0), RCM.Theme.Section, 1)
@@ -404,7 +430,7 @@ local function LibraryWindow(props)
                 end
                 
                 RCM.Rect(vector.create(sx,sy,1), vector.create(COL_W,sh,0), RCM.Theme.Border, 1)
-                RCM.Rect(vector.create(sx+1,sy+1,1), vector.create(COL_W-2,sh-2,0), RCM.Theme.SectionBg, 1)
+                RCM.Rect(vector.create(sx+2,sy+2,1), vector.create(COL_W-4,sh-4,0), RCM.Theme.SectionBg, 1)
                 RCM.Rect(vector.create(sx,sy,2), vector.create(COL_W,2,0), RCM.Theme.Accent, 1)
                 RCM.Label(vector.create(sx+8,sy+5,3), sect.name, RCM.Theme.Text)
 
@@ -415,6 +441,7 @@ local function LibraryWindow(props)
                     local itemPos = vector.create(sx+5, cy, 0)
                     local hover = RCM:IsMouseOver(itemPos, vector.create(COL_W-10, iH-4, 0))
                     local iClick = hover and click
+                    local iRClick = hover and RCM.State.RightMouseDown and not RCM.State.RightMouseHeld
                     if hover then RCM.Rect(itemPos, vector.create(COL_W-10, iH-4, 0), RCM.Theme.Hover, 0.5) end
 
                     if item.type == "toggle" then
@@ -495,7 +522,7 @@ local function LibraryWindow(props)
                     
                     elseif item.type == "binder" then
                         if iClick then item.listening = not item.listening end
-                        if (RCM.State.RightMouseDown and not RCM.State.RightMouseHeld) and hover then RCM.State.ActivePopup = { BindItem = item, Pos = RCM.State.MousePos } end
+                        if iRClick and hover then RCM.State.ActivePopup = { BindItem = item, Pos = RCM.State.MousePos, Type = "Binder" } end
                         local txt = "[" .. (item.listening and "..." or item.key) .. "]"
                         local keyW = (7 * #txt)
                         RCM.Label(vector.create(nmX, cy + 3, 3), FitText(item.name, 230 - keyW), RCM.Theme.Text)
@@ -644,6 +671,15 @@ function RCM:DrawStandardInterface()
         end
     end
 
+    -- Edit Mode Indicator
+    if RCM.State.EditMode and RCM.State.Enabled then
+        local st = "LAYOUT EDITOR ENABLED"
+        local sw = 7 * #st
+        local sp = vector.create((RCM.State.ScreenSize.x/2)-(sw/2), 10, RCM.Layer.Notif)
+        RCM.Rect(vector.create(sp.x-5, sp.y-2, 0), vector.create(sw+10, 20, 0), RCM.Theme.Background, 0.8)
+        RCM.Label(sp, st, RCM.Theme.EditModeText)
+    end
+
     if RCM.State.KeybindList.Visible and RCM.State.Enabled then
         local itemsToShow = {}
         for _, bind in ipairs(RCM.Binders) do if RCM.State.KeybindList.Mode == "Always" or (RCM.State.KeybindList.Mode == "Active" and bind.active) then table.insert(itemsToShow, bind) end end
@@ -673,21 +709,44 @@ function RCM:DrawStandardInterface()
     end
 end
 
+-- [ UPDATED ] Popup Logic for Binders AND Widgets
 function RCM:DrawPopup()
     if not RCM.State.ActivePopup then return end
-    local p = RCM.State.ActivePopup; local bind = p.BindItem; local pos = p.Pos
-    local opts = {"Hold", "Toggle", "Always"}; local w, h = 80, (#opts*20)+4
+    local p = RCM.State.ActivePopup; local pos = p.Pos
+    local opts, title = {}, ""
+    
+    if p.Type == "Binder" then
+        title = "Bind Mode"
+        opts = {"Hold", "Toggle", "Always"}
+    elseif p.Type == "Widget" then
+        title = "Layer Order"
+        opts = {"Bring to Front", "Send to Back"}
+    end
+    
+    local w, h = 120, (#opts*20)+24
     RCM.Rect(pos, vector.create(w, h, 20), RCM.Theme.Border, 1)
     RCM.Rect(vector.create(pos.x+1, pos.y+1, 20), vector.create(w-2, h-2, 0), RCM.Theme.Background, 1)
-    local cy = pos.y + 2
+    RCM.Label(vector.create(pos.x+5, pos.y+4, 21), title, RCM.Theme.Accent)
+    
+    local cy = pos.y + 22
     for _, m in ipairs(opts) do
         local op = vector.create(pos.x+2, cy, 20); local os = vector.create(w-4, 18, 0)
         local hov = RCM:IsMouseOver(op, os)
         if hov then
             RCM.Rect(op, os, RCM.Theme.Accent, 0.8)
-            if RCM.State.MouseDown and not RCM.State.MouseHeld then bind.mode = m; RCM.State.ActivePopup = nil; return end
+            if RCM.State.MouseDown and not RCM.State.MouseHeld then 
+                if p.Type == "Binder" then p.BindItem.mode = m
+                elseif p.Type == "Widget" then
+                    if m == "Bring to Front" then RCM:ReorderWidget(p.Obj, "Front")
+                    elseif m == "Send to Back" then RCM:ReorderWidget(p.Obj, "Back") end
+                end
+                RCM.State.ActivePopup = nil; return 
+            end
         end
-        RCM.Label(vector.create(pos.x+5, cy+2, 21), m, (bind.mode==m or hov) and RCM.Theme.Text or RCM.Theme.TextDim)
+        local col = RCM.Theme.TextDim
+        if p.Type == "Binder" and p.BindItem.mode == m then col = RCM.Theme.Text end
+        if hov then col = RCM.Theme.Text end
+        RCM.Label(vector.create(pos.x+5, cy+2, 21), m, col)
         cy = cy + 20
     end
 end
@@ -720,6 +779,8 @@ function RCM:Init()
 end
 
 function RCM:HandleDraggableWidgets()
+    -- Render loop for widgets
+    -- Layering logic depends on table order
     for _, wid in ipairs(RCM.Widgets) do
         RCM:HandleDraggable(wid)
         wid.draw()
