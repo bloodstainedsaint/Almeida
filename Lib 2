@@ -1,6 +1,4 @@
---!optimization 2
--- [ RCM ] Severe UI Library v11.4 (Modern Flat)
--- Upload this to your GitHub Repository.
+--[ RCM Library v11.4 | Upload this to GitHub ]--
 
 local RCM = {}
 
@@ -21,7 +19,9 @@ RCM.Theme = {
     Negative     = Color3.fromRGB(255, 85, 85),
     SwitchBg     = Color3.fromRGB(50, 50, 60),
     ResizeHandle = Color3.fromRGB(255, 255, 255),
-    EditModeText = Color3.fromRGB(255, 180, 50)
+    EditModeText = Color3.fromRGB(255, 180, 50),
+    InfoWinBg    = Color3.fromRGB(25, 25, 30), -- Added missing key
+    TooltipBg    = Color3.fromRGB(25, 25, 30)  -- Added missing key
 }
 
 RCM.Layer = { Base=1, Section=2, Item=3, Text=4, Widget=10, Popup=50, InfoWin=150, Tooltip=200, Snap=250, Notif=300 }
@@ -97,21 +97,29 @@ function RCM:UpdateInput()
 
     if RCM.State.MouseDown and not RCM.State.MouseHeld and RCM.State.ActivePopup then
         local p = RCM.State.ActivePopup
-        local size = p.Size or vector.create(130, 0, 0)
+        local size = (p.Obj and p.Obj.size) or vector.create(130, 0, 0)
         if not RCM:IsMouseOver(p.Pos, size) then RCM.State.ActivePopup = nil end
     end
 
     local keys = getpressedkeys()
     local isTogglePressed = false
-    if keys then for _, k in ipairs(keys) do if k == RCM.State.ToggleKey then isTogglePressed = true break end end end
+    -- Mapping basic keys for toggle check
+    local KeyMap = { [46] = "Delete", [45] = "Insert" }
+    
+    if keys then 
+        for _, k in ipairs(keys) do 
+            -- Simple check for numbers or strings depending on getpressedkeys implementation
+            if k == RCM.State.ToggleKey or KeyMap[k] == RCM.State.ToggleKey then isTogglePressed = true break end 
+        end 
+    end
 
-    if isTogglePressed and (tick() - RCM.State.LastToggle > 0.3) then
-        RCM.State.Enabled = not RCM.State.Enabled; RCM.State.LastToggle = tick()
+    if isTogglePressed and (os.clock() - RCM.State.LastToggle > 0.3) then
+        RCM.State.Enabled = not RCM.State.Enabled; RCM.State.LastToggle = os.clock()
     end
 
     RCM.State.FrameCount = RCM.State.FrameCount + 1
-    if (tick() - RCM.State.LastTick) >= 1 then
-        RCM.State.CurrentFPS = RCM.State.FrameCount; RCM.State.FrameCount = 0; RCM.State.LastTick = tick()
+    if (os.clock() - RCM.State.LastTick) >= 1 then
+        RCM.State.CurrentFPS = RCM.State.FrameCount; RCM.State.FrameCount = 0; RCM.State.LastTick = os.clock()
     end
 end
 
@@ -144,7 +152,7 @@ function RCM:IsMouseOver(pos, size)
 end
 
 function RCM:SetWatermark(text) RCM.State.Watermark.Text = text end
-function RCM:Notify(msg, duration) table.insert(RCM.Notifications, {id = tick()..math.random(), text = msg, duration = duration or 3, start = tick(), alpha = 0}) end
+function RCM:Notify(msg, duration) table.insert(RCM.Notifications, {id = os.clock()..math.random(), text = msg, duration = duration or 3, start = os.clock(), alpha = 0}) end
 function RCM:SetEditMode(val) RCM.State.EditMode = val end
 
 -- [ Snapping & Layering ]
@@ -322,7 +330,7 @@ function RCM:DrawStandardInterface()
     
     local startY = 60
     for i=#RCM.Notifications, 1, -1 do
-        local n = RCM.Notifications[i]; local el = tick()-n.start; local rem = n.duration-el
+        local n = RCM.Notifications[i]; local el = os.clock()-n.start; local rem = n.duration-el
         if rem <= 0 then table.remove(RCM.Notifications, i) else
             local bw = (7*#n.text)+20; local px = RCM.State.ScreenSize.x - bw - 20
             RCM.Rect(vector.create(px,startY,200), vector.create(bw,28,0), RCM.Theme.Border, 1)
@@ -376,7 +384,6 @@ function RCM:DrawStandardInterface()
     end
 end
 
--- [ NEW ] Input Processing for Info Windows (Runs BEFORE Main Window)
 function RCM:ProcessInfoWindowsInput()
     if not RCM.State.Enabled then return end
     
@@ -431,7 +438,6 @@ function RCM:ProcessInfoWindowsInput()
     end
 end
 
--- [ NEW ] Render Only for Info Windows (Runs AFTER Main Window)
 function RCM:RenderInfoWindows()
     if not RCM.State.Enabled then return end
     for i, win in ipairs(RCM.State.InfoWindows) do
@@ -697,7 +703,7 @@ function RCM:OpenInfoWindow(title, content)
     end
     local last = RCM.State.InfoWindows[#RCM.State.InfoWindows]
     local spawn = last and vector.create(last.pos.x+20, last.pos.y+20, 0) or vector.create((RCM.State.ScreenSize.x/2)-150, (RCM.State.ScreenSize.y/2)-100, 0)
-    local win = {id=tick()..math.random(), title=title, items=processedLines, pos=spawn, dragging=false, dragOffset=vector.create(0,0,0), size=vector.create(300, 200, 0)} 
+    local win = {id=os.clock()..math.random(), title=title, items=processedLines, pos=spawn, dragging=false, dragOffset=vector.create(0,0,0), size=vector.create(300, 200, 0)} 
     table.insert(RCM.State.InfoWindows, win)
 end
 
@@ -739,14 +745,13 @@ function RCM:DrawPopup()
 end
 
 function RCM:Init()
-    local ren = RunService.Render or game:GetService("RunService").RenderStepped
+    local ren = game:GetService("RunService").Render
     ren:Connect(function()
         RCM.State.InputBusy = false
         RCM.State.ActiveTooltip = nil 
         
         RCM:UpdateInput()
         RCM:UpdateBinders()
-        
         RCM:ProcessInfoWindowsInput()
         
         RCM:DrawStandardInterface()
@@ -767,9 +772,5 @@ function RCM:Init()
     end)
 end
 
-function RCM:HandleDraggableWidgets()
-    for _, wid in ipairs(RCM.Widgets) do RCM:HandleDraggable(wid); wid.draw() end
-end
-
-RCM:Init()
+-- RCM:Init() is REMOVED from here to allow the loader to call it.
 return RCM
