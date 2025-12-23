@@ -1,10 +1,10 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v11.0 (The Overhaul)
--- Changes: Modern "Switch" Toggles, Circle Sliders, Drop Shadows, Cleaner Layouts.
+-- [ RCM ] Severe UI Library v11.1 (Modern Flat)
+-- Changes: Removed Drop Shadows, kept Modern styling (Pills, Circle Sliders, Flat Design).
 
 local RCM = {}
 
-print("[RCM] Library Initialized v11.0 Redesign")
+print("[RCM] Library Initialized v11.1 Flat")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -16,7 +16,6 @@ RCM.Theme = {
     Text         = Color3.fromRGB(235, 235, 240),
     TextDim      = Color3.fromRGB(110, 110, 120),
     Hover        = Color3.fromRGB(40, 40, 50),
-    Shadow       = Color3.fromRGB(0, 0, 0),         -- For Drop Shadows
     SnapLine     = Color3.fromRGB(98, 114, 255),
     Negative     = Color3.fromRGB(255, 85, 85),
     SwitchBg     = Color3.fromRGB(50, 50, 60),      -- Toggle Off state
@@ -24,8 +23,8 @@ RCM.Theme = {
     EditModeText = Color3.fromRGB(255, 180, 50)
 }
 
-RCM.Layer = { Shadow=0, Base=1, Section=2, Item=3, Text=4, Widget=10, Popup=50, Tooltip=100, Snap=200, Notif=300 }
-local WIN_W, COL_W = 560, 265 -- Slightly wider for breathing room
+RCM.Layer = { Base=1, Section=2, Item=3, Text=4, Widget=10, Popup=50, Tooltip=100, Snap=200, Notif=300 }
+local WIN_W, COL_W = 560, 265 
 
 -- [ 2 ] State & Registry
 RCM.State = {
@@ -54,12 +53,6 @@ function RCM.Label(pos, text, color, center) DrawingImmediate.Text(pos, 13, colo
 function RCM.Line(a, b, color, alpha, thickness) DrawingImmediate.Line(a, b, color, alpha, 1, thickness or 1) end
 function RCM.Circle(pos, radius, color, alpha) DrawingImmediate.FilledCircle(pos, radius, color, alpha or 1) end
 function RCM.Triangle(a, b, c, color, alpha) DrawingImmediate.FilledTriangle(a, b, c, color, alpha or 1) end
-
--- New: Drop Shadow Helper
-function RCM.Shadow(pos, size, depth)
-    local offset = depth or 4
-    RCM.Rect(vector.create(pos.x + offset, pos.y + offset, RCM.Layer.Shadow), size, RCM.Theme.Shadow, 0.4)
-end
 
 local function FitText(text, maxWidth)
     local charWidth = 7 
@@ -156,7 +149,6 @@ function RCM:SetEditMode(val) RCM.State.EditMode = val end
 -- ============================================================================
 -- [ 5 ] SNAPPING & LAYERING
 -- ============================================================================
--- (Snapping logic remains largely same for robustness, but rendering updated)
 
 function RCM:ReorderWidget(widget, action)
     local index = nil
@@ -330,8 +322,7 @@ local function LibraryWindow(props)
         local click = RCM.State.MouseDown and not RCM.State.MouseHeld
         if RCM.State.InputBusy and not self.dragging then click = false end
 
-        -- Draw Window Body with Shadow
-        RCM.Shadow(self.pos, self.size, 6)
+        -- Draw Window Body
         RCM.Rect(vector.create(x,y,z), self.size, RCM.Theme.Border, 1)
         RCM.Rect(vector.create(x+1,y+1,z), vector.create(WIN_W-2, totalH+18,0), RCM.Theme.Background, 1)
 
@@ -351,7 +342,6 @@ local function LibraryWindow(props)
             RCM.Label(vector.create(x+tx+10,y+10,z+1), pg.name, isActive and RCM.Theme.Accent or RCM.Theme.TextDim)
             if isActive then 
                 RCM.Rect(vector.create(x+tx,y+headH-2,z+1), vector.create(w,2,0), RCM.Theme.Accent, 1)
-                -- Add a slight glow behind active text
                 RCM.Rect(vector.create(x+tx,y+1,z), vector.create(w,headH-2,0), RCM.Theme.Accent, 0.05)
             end
             tx = tx + w
@@ -513,7 +503,6 @@ local function LibraryWindow(props)
         end
     end
     
-    -- Page/Section Instantiation logic (Unchanged structure)
     function window:Page(p)
         for _, pg in ipairs(self.pages) do if pg.name == p.Name then return pg end end
         local pg = {name=p.Name, sections={}}
@@ -586,7 +575,6 @@ function RCM:DrawInfoWindows()
         end
 
         -- Render
-        RCM.Shadow(win.pos, win.size, 6)
         RCM.Rect(win.pos, win.size, RCM.Theme.Border, 1)
         RCM.Rect(vector.create(win.pos.x+1,win.pos.y+1,RCM.Layer.InfoWin+i), vector.create(w-2, th-2, 0), RCM.Theme.InfoWinBg, 1)
         RCM.Rect(vector.create(win.pos.x+1,win.pos.y+1,RCM.Layer.InfoWin+i), vector.create(w-2, hh, 0), RCM.Theme.Header, 1)
@@ -629,7 +617,6 @@ function RCM:DrawStandardInterface()
                 else RCM.State.Watermark.Dragging = false end
             end
         end
-        RCM.Shadow(p, sz, 3)
         RCM.Rect(p, sz, RCM.Theme.Border, 1); RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(sz.x-2,sz.y-2,0), RCM.Theme.Background, 1)
         RCM.Rect(p, vector.create(2,sz.y,0), RCM.Theme.Accent, 1); RCM.Label(vector.create(p.x+10,p.y+5,3), t, RCM.Theme.Text)
     end
@@ -639,7 +626,6 @@ function RCM:DrawStandardInterface()
         local n = RCM.Notifications[i]; local el = tick()-n.start; local rem = n.duration-el
         if rem <= 0 then table.remove(RCM.Notifications, i) else
             local bw = (7*#n.text)+20; local px = RCM.State.ScreenSize.x - bw - 20
-            RCM.Shadow(vector.create(px,startY,200), vector.create(bw,28,0), 4)
             RCM.Rect(vector.create(px,startY,200), vector.create(bw,28,0), RCM.Theme.Border, 1)
             RCM.Rect(vector.create(px+1,startY+1,200), vector.create(bw-2,26,0), RCM.Theme.Background, 1)
             RCM.Label(vector.create(px+10,startY+6,200), n.text, RCM.Theme.Text)
@@ -675,7 +661,6 @@ function RCM:DrawStandardInterface()
                 else RCM.State.KeybindList.Dragging=false end
             end
             
-            RCM.Shadow(p, sz, 4)
             RCM.Rect(p, sz, RCM.Theme.Border, 1)
             RCM.Rect(vector.create(p.x+1,p.y+1,1), vector.create(mw-2, th-2, 0), RCM.Theme.Background, 1)
             RCM.Rect(p, vector.create(mw, 24, 0), RCM.Theme.Header, 1)
@@ -701,7 +686,6 @@ function RCM:DrawPopup()
     elseif p.Type == "Widget" then title = "Layer Order"; opts = {"Bring to Front", "Send to Back"} end
     
     local w, h = 130, (#opts*22)+28
-    RCM.Shadow(pos, vector.create(w,h,0), 6)
     RCM.Rect(pos, vector.create(w, h, 20), RCM.Theme.Border, 1)
     RCM.Rect(vector.create(pos.x+1, pos.y+1, 20), vector.create(w-2, h-2, 0), RCM.Theme.Background, 1)
     RCM.Rect(vector.create(pos.x+1, pos.y+1, 20), vector.create(w-2, 22, 0), RCM.Theme.Header, 1)
