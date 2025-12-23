@@ -1,11 +1,12 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v8.4 (Stable)
+-- [ RCM ] Severe UI Library v8.5 (Stable)
 -- Features: Multi-Select, Binders, Tooltips, Runtime Flags
--- Fixed: InfoWindows not rendering (Restored Logic)
+-- Fixed: InfoWindows Rendering
+-- Update: Watermark now shows "User: [Name]" instead of FPS.
 
 local RCM = {}
 
-print("[RCM] Library Initialized v8.4 Stable")
+print("[RCM] Library Initialized v8.5 Stable")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -141,7 +142,6 @@ function RCM:Notify(msg, duration) table.insert(self.Notifications, {id = tick()
 
 -- [ 4 ] WINDOW & DRAWING LOGIC
 function RCM:OpenInfoWindow(title, content)
-    -- Remove existing window with same title if exists (to prevent duplicates)
     for i, win in ipairs(self.State.InfoWindows) do
         if win.title == title then table.remove(self.State.InfoWindows, i) break end
     end
@@ -156,14 +156,11 @@ function RCM:OpenInfoWindow(title, content)
             end
         end
     end
-    -- Offset spawn position based on previous window
     local last = self.State.InfoWindows[#self.State.InfoWindows]
     local spawn = last and vector.create(last.pos.x+20, last.pos.y+20, 0) or vector.create((self.State.ScreenSize.x/2)-150, (self.State.ScreenSize.y/2)-100, 0)
-    
     table.insert(self.State.InfoWindows, {id=tick()..math.random(), title=title, items=processedLines, pos=spawn, dragging=false, dragOffset=vector.create(0,0,0)})
 end
 
--- RESTORED: Info Window Logic (Draggable, Close, Links)
 function RCM:UpdateInfoWindowsLogic()
     if not self.State.Enabled then return end
     for i = #self.State.InfoWindows, 1, -1 do
@@ -175,18 +172,14 @@ function RCM:UpdateInfoWindowsLogic()
         
         if not self.State.InputBusy or win.dragging then
             local click = self.State.MouseDown and not self.State.MouseHeld
-            -- Check Close
             local closePos = vector.create(win.pos.x + w - 20, win.pos.y + 2, 0)
             if click and self:IsMouseOver(closePos, vector.create(18,18,0)) then table.remove(self.State.InfoWindows, i); return end
             
-            -- Check Drag
             if self:IsMouseOver(win.pos, vector.create(w, headerH, 0)) and click then
                 win.dragging = true; win.dragOffset = vector.create(self.State.MousePos.x - win.pos.x, self.State.MousePos.y - win.pos.y, 0)
-                -- Bring to front
                 table.insert(self.State.InfoWindows, table.remove(self.State.InfoWindows, i)); return
             end
             
-            -- Check Links
             if click and self:IsMouseOver(win.pos, vector.create(w, totalH, 0)) then
                 local cy = win.pos.y + headerH + 5
                 for _, item in ipairs(win.items) do
@@ -208,7 +201,6 @@ function RCM:UpdateInfoWindowsLogic()
     end
 end
 
--- RESTORED: Info Window Rendering
 function RCM:DrawInfoWindowsRender()
     for i, win in ipairs(self.State.InfoWindows) do
         local pos = win.pos; local w = 300; local hh = 22
@@ -243,9 +235,19 @@ function RCM:DrawInfoWindowsRender()
 end
 
 function RCM:DrawStandardInterface()
+    -- Watermark
     if self.State.Watermark.Visible then
         local p, t = self.State.Watermark.Pos, self.State.Watermark.Text
-        if self.State.Watermark.Extra then t = t.." | FPS: "..self.State.CurrentFPS end
+        
+        -- [ UPDATED ] Show User instead of FPS
+        if self.State.Watermark.Extra then
+            local plrName = "Unknown"
+            if game and game:GetService("Players") and game:GetService("Players").LocalPlayer then
+                plrName = game:GetService("Players").LocalPlayer.Name
+            end
+            t = t .. " | User: " .. plrName
+        end
+        
         local sz = vector.create((7*#t)+20, 22, 0)
         if self.State.Enabled and not self.State.InputBusy then
             if self.State.MouseDown and not self.State.MouseHeld and self:IsMouseOver(p, sz) then
@@ -260,6 +262,7 @@ function RCM:DrawStandardInterface()
         RCM.Rect(p, vector.create(sz.x,2,0), self.Theme.Accent, 1); RCM.Label(vector.create(p.x+10,p.y+4,3), t, self.Theme.Text)
     end
     
+    -- Notifications
     local startY = 50
     for i=#self.Notifications, 1, -1 do
         local n = self.Notifications[i]; local el = tick()-n.start; local rem = n.duration-el
@@ -273,6 +276,7 @@ function RCM:DrawStandardInterface()
         end
     end
 
+    -- Keybind List
     if self.State.KeybindList.Visible and self.State.Enabled then
         local itemsToShow = {}
         for _, bind in ipairs(RCM.Binders) do
@@ -551,21 +555,19 @@ function RCM:Init()
     local ren = RunService.Render or game:GetService("RunService").RenderStepped
     ren:Connect(function()
         self.State.InputBusy = false
-        self.State.ActiveTooltip = nil -- [FIX] Reset tooltip every frame
+        self.State.ActiveTooltip = nil 
         
         self:UpdateInput()
         self:UpdateBinders()
         
-        -- UPDATED: Added these two lines to render the info windows
-        self:UpdateInfoWindowsLogic()
+        self:UpdateInfoWindowsLogic() -- RESTORED
         self:DrawStandardInterface()
         
         for _, w in ipairs(self.Windows) do w:Draw() end
         
-        -- UPDATED: Render Info Windows on top
-        self:DrawInfoWindowsRender()
-        
+        self:DrawInfoWindowsRender() -- RESTORED
         self:DrawPopup()
+        
         if self.State.ActiveTooltip and not self.State.ActivePopup and self.State.Enabled then
             local t, m = self.State.ActiveTooltip, self.State.MousePos
             local w = (8*#t)+12
