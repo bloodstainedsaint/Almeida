@@ -1,11 +1,12 @@
 --!optimization 2
--- [ RCM ] Severe UI Library v9.4 (Stable Fix)
+-- [ RCM ] Severe UI Library v9.5 (Stable)
 -- Features: Modular Host, Widget Snapping, Resizing
--- Fixed: "attempt to index nil with MouseDown" (Replaced 'self' with 'RCM')
+-- Fixed: Interaction locked when menu closed.
+-- Update: Resize handle is now an "L" bracket.
 
 local RCM = {}
 
-print("[RCM] Library Initialized v9.4 Stable")
+print("[RCM] Library Initialized v9.5 Stable")
 
 -- [ 1 ] Configuration & Theme
 RCM.Theme = {
@@ -22,7 +23,7 @@ RCM.Theme = {
     Link       = Color3.new(0.4, 0.6, 1),
     Section    = Color3.new(0.25, 0.25, 0.25),
     Negative   = Color3.new(1, 0.3, 0.3),
-    ResizeHandle = Color3.new(0.3, 0.3, 0.3)
+    ResizeHandle = Color3.new(0.4, 0.4, 0.4) -- Slightly brighter for visibility
 }
 
 RCM.Layer = { Base=0, Section=1, Item=2, Text=3, Widget=10, Popup=20, InfoWin=100, Snap=150, Notif=200, Tooltip=300 }
@@ -55,7 +56,6 @@ RCM.Flags = {}
 function RCM.Rect(pos, size, color, alpha) DrawingImmediate.FilledRectangle(pos, size, color, alpha or 1) end
 function RCM.Label(pos, text, color, center) DrawingImmediate.Text(pos, 13, color, 1, text, center or false, "Proggy") end
 function RCM.Line(a, b, color, alpha, thickness) DrawingImmediate.Line(a, b, color, alpha, 1, thickness or 1) end
-function RCM.Triangle(a, b, c, color, alpha) DrawingImmediate.FilledTriangle(a, b, c, color, alpha or 1) end
 
 local function FitText(text, maxWidth)
     local charWidth = 7 
@@ -219,7 +219,7 @@ function RCM:CalculateResizeSnap(currentObj, rawSize)
     RCM.State.Snapping.ActiveLines = {}
 
     local function CheckAxis(currentSizeVal, posVal, targets, isX)
-        local edge = posVal + currentSizeVal -- Bottom or Right edge
+        local edge = posVal + currentSizeVal 
         local best = nil; local minD = threshold
         
         for _, t in ipairs(targets) do
@@ -231,10 +231,7 @@ function RCM:CalculateResizeSnap(currentObj, rawSize)
                 else ls=vector.create(0,t,RCM.Layer.Snap); le=vector.create(screen.x,t,0) end
                 table.insert(RCM.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
                 
-                if diff < lockDist and diff < minD then
-                    minD = diff
-                    best = t - posVal
-                end
+                if diff < lockDist and diff < minD then minD = diff; best = t - posVal end
             end
         end
         return best or currentSizeVal
@@ -276,18 +273,23 @@ function RCM:CreateWidget(props)
 end
 
 function RCM:HandleDraggable(obj)
-    -- [ FIX ] Using RCM.State directly prevents context errors
+    -- [ FIX ] Lock interaction if menu is closed
+    if not RCM.State.Enabled then
+        obj.dragging = false
+        obj.resizing = false
+        return
+    end
+
     local click = RCM.State.MouseDown and not RCM.State.MouseHeld
     
     if not RCM.State.InputBusy then
         -- 1. Check Resize (Bottom Right Corner)
         if obj.resizable then
-            local resizeHandleSize = 15
-            local handlePos = vector.create(obj.pos.x + obj.size.x - resizeHandleSize, obj.pos.y + obj.size.y - resizeHandleSize, 0)
+            local handleSize = 15
+            local handlePos = vector.create(obj.pos.x + obj.size.x - handleSize, obj.pos.y + obj.size.y - handleSize, 0)
             
-            if click and RCM:IsMouseOver(handlePos, vector.create(resizeHandleSize, resizeHandleSize, 0)) then
+            if click and RCM:IsMouseOver(handlePos, vector.create(handleSize, handleSize, 0)) then
                 obj.resizing = true
-                -- No offset needed for absolute resize tracking
             end
         end
 
@@ -316,16 +318,16 @@ function RCM:HandleDraggable(obj)
         end
     end
 
-    -- Draw Resize Handle
-    if obj.resizable and (obj.dragging or obj.resizing or RCM:IsMouseOver(obj.pos, obj.size)) then
+    -- [ FIX ] Draw "L" Bracket for Resize Handle (Only if enabled)
+    if obj.resizable and RCM.State.Enabled then
         local p = obj.pos; local s = obj.size; local hs = 10
-        local c = obj.resizing and RCM.Theme.Accent or RCM.Theme.ResizeHandle
-        RCM.Triangle(
-            vector.create(p.x + s.x, p.y + s.y, RCM.Layer.Widget+5),
-            vector.create(p.x + s.x - hs, p.y + s.y, RCM.Layer.Widget+5),
-            vector.create(p.x + s.x, p.y + s.y - hs, RCM.Layer.Widget+5),
-            c, 1
-        )
+        local c = (obj.resizing or RCM:IsMouseOver(vector.create(p.x+s.x-15, p.y+s.y-15, 0), vector.create(15,15,0))) and RCM.Theme.Accent or RCM.Theme.ResizeHandle
+        local z = RCM.Layer.Widget+5
+        
+        -- Horizontal Line
+        RCM.Line(vector.create(p.x+s.x, p.y+s.y, z), vector.create(p.x+s.x-hs, p.y+s.y, z), c, 1, 2)
+        -- Vertical Line
+        RCM.Line(vector.create(p.x+s.x, p.y+s.y, z), vector.create(p.x+s.x, p.y+s.y-hs, z), c, 1, 2)
     end
 end
 
