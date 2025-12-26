@@ -1,911 +1,114 @@
---[ RCM Library v12.1 | Clean Animations ]--
-local RCM = {}
+--!optimization 2
+-- [ LOADER ] Severe UI v6.0 Showcase
 
-print("[RCM] Library Initialized v12.1 Clean")
+-- 1. Load Library (Bypassing GitHub Cache)
+local LibraryURL = "https://raw.githubusercontent.com/bloodstainedsaint/Almeida/refs/heads/main/Lib?v=" .. tostring(math.random(1, 1000000))
+local success, result = pcall(function() return game:HttpGet(LibraryURL) end)
+if not success then return warn("Error: " .. tostring(result)) end
+local RCM = loadstring(result)()
 
--- [ Configuration & Theme ]
-RCM.Theme = {
-    Background   = Color3.fromRGB(20, 20, 24),
-    Header       = Color3.fromRGB(28, 28, 33), 
-    SectionBg    = Color3.fromRGB(25, 25, 30),
-    Border       = Color3.fromRGB(45, 45, 55),
-    Accent       = Color3.fromRGB(98, 114, 255),
-    Text         = Color3.fromRGB(235, 235, 240),
-    TextDim      = Color3.fromRGB(110, 110, 120),
-    Hover        = Color3.fromRGB(40, 40, 50),
-    Link         = Color3.fromRGB(50, 200, 255),
-    SnapLine     = Color3.fromRGB(98, 114, 255),
-    Negative     = Color3.fromRGB(255, 85, 85),
-    SwitchBg     = Color3.fromRGB(50, 50, 60),
-    ResizeHandle = Color3.fromRGB(255, 255, 255),
-    EditModeText = Color3.fromRGB(255, 180, 50),
-    InfoWinBg    = Color3.fromRGB(25, 25, 30),
-    TooltipBg    = Color3.fromRGB(25, 25, 30),
-    Divider      = Color3.fromRGB(60, 60, 70)
-}
+-- 2. Create Main Window
+local Window = RCM:CreateWindow({ 
+    Name = "Almeida | Release Build", 
+    Position = vector.create(200, 200, 0),
+    ToggleKey = "Delete"
+})
 
-RCM.Layer = { Base=1, Section=2, Item=3, Text=4, Widget=10, Popup=50, InfoWin=150, Tooltip=200, Snap=250, Notif=300 }
-local WIN_W, COL_W = 560, 265 
+-- ============================================================================
+-- [ TAB 1 ] COMBAT (Binders & Notifications)
+-- ============================================================================
+local TabCombat = Window:Page({ Name = "Combat" })
 
--- [ State & Registry ]
-RCM.State = {
-    Enabled = true,
-    EditMode = false, 
-    MousePos = vector.create(0, 0, 0),
-    MouseDown = false, MouseHeld = false,
-    RightMouseDown = false, RightMouseHeld = false,
-    ToggleKey = "Delete", LastToggle = 0,
-    ActiveTooltip = nil, ActivePopup = nil, 
-    ScreenSize = vector.create(1920, 1080, 0),
-    Watermark = { Visible = true, Text = "Severe UI", Extra = true, Pos = vector.create(60, 60, 0), Dragging = false, Offset = vector.create(0,0,0), Pinned = true },
-    KeybindSettings = { Mode = "Always" },
-    InfoWindows = {},
-    InputBusy = false,
-    Snapping = { ActiveLines = {} },
-    LastTick = 0, FrameCount = 0, CurrentFPS = 60,
-    
-    -- Animation State
-    MenuAlpha = 1, -- 0 to 1
-    DeltaTime = 0,
-    LastRender = os.clock()
-}
+-- Left Column
+local SecMain = TabCombat:Section({ Name = "Aimbot", Side = "Left" })
 
-RCM.Binders = {}; RCM.Notifications = {}; RCM.Windows = {}; RCM.Widgets = {}; RCM.Flags = {} 
-
--- [ Animation Helpers ]
-function RCM.Lerp(a, b, t) return a + (b - a) * t end
-function RCM.LerpColor(c1, c2, t)
-    return Color3.new(
-        RCM.Lerp(c1.R, c2.R, t),
-        RCM.Lerp(c1.G, c2.G, t),
-        RCM.Lerp(c1.B, c2.B, t)
-    )
-end
-
--- [ Helpers ]
-function RCM.Rect(pos, size, color, alpha) DrawingImmediate.FilledRectangle(pos, size, color, (alpha or 1) * RCM.State.MenuAlpha) end
--- Standard Rect that ignores menu alpha (for Notifications/Watermark if pinned)
-function RCM.RectStatic(pos, size, color, alpha) DrawingImmediate.FilledRectangle(pos, size, color, alpha or 1) end
-function RCM.Outline(pos, size, color, alpha) DrawingImmediate.Rectangle(pos, size, color, (alpha or 1) * RCM.State.MenuAlpha, 1) end
-function RCM.OutlineStatic(pos, size, color, alpha) DrawingImmediate.Rectangle(pos, size, color, alpha or 1, 1) end
-function RCM.Label(pos, text, color, center, alpha) DrawingImmediate.Text(pos, 13, color, (alpha or 1) * RCM.State.MenuAlpha, text, center or false, "Proggy") end
-function RCM.LabelStatic(pos, text, color, center, alpha) DrawingImmediate.Text(pos, 13, color, alpha or 1, text, center or false, "Proggy") end
-function RCM.Line(a, b, color, alpha, thickness) DrawingImmediate.Line(a, b, color, (alpha or 1) * RCM.State.MenuAlpha, 1, thickness or 1) end
-function RCM.Circle(pos, radius, color, alpha) DrawingImmediate.FilledCircle(pos, radius, color, (alpha or 1) * RCM.State.MenuAlpha) end
-function RCM.Triangle(a, b, c, color, alpha) DrawingImmediate.FilledTriangle(a, b, c, color, (alpha or 1) * RCM.State.MenuAlpha) end
-
-local function FitText(text, maxWidth)
-    local charWidth = 7 
-    if (#text * charWidth) > maxWidth then return string.sub(text, 1, math.floor(maxWidth / charWidth) - 2) .. ".." end
-    return text
-end
-
-local function WrapText(str, maxChars)
-    local lines, currentLine = {}, ""
-    for word in str:gmatch("%S+") do
-        if #currentLine + #word + 1 > maxChars then table.insert(lines, currentLine); currentLine = word
-        else if currentLine == "" then currentLine = word else currentLine = currentLine .. " " .. word end end
+SecMain:Toggle({
+    Name = "Enabled",
+    Default = false,
+    Callback = function(val)
+        if val then RCM:Notify("Aimbot Enabled", 3) end
     end
-    if currentLine ~= "" then table.insert(lines, currentLine) end
-    if #lines == 0 then lines = {str} end
-    return lines
-end
+})
 
--- [ Widget Logic ]
-function RCM:HandleDraggableWidgets()
-    for _, wid in ipairs(RCM.Widgets) do 
-        -- Pinned widgets use static drawing (always 1 alpha), unpinned use menu alpha
-        local pinned = wid.pinned
-        if RCM.State.Enabled or pinned then
-            RCM:HandleDraggable(wid)
-            if wid.draw then 
-                -- Temporarily force alpha for pinned widgets if menu is closed
-                local oldAlpha = RCM.State.MenuAlpha
-                if pinned and not RCM.State.Enabled then RCM.State.MenuAlpha = 1 end
-                wid.draw()
-                RCM.State.MenuAlpha = oldAlpha
-            end
+SecMain:Binder({
+    Name = "Trigger Key",
+    Default = "RightMouse",
+    Tooltip = "Right click to change mode (Hold/Toggle)",
+    Callback = function(active)
+        if active then
+            print("Aiming...")
         end
     end
-end
+})
 
--- [ Core Logic ]
-function RCM:UpdateInput()
-    local cur = os.clock()
-    RCM.State.DeltaTime = cur - RCM.State.LastRender
-    RCM.State.LastRender = cur
+-- Right Column
+local SecGun = TabCombat:Section({ Name = "Weapon", Side = "Right" })
 
-    local s, mPos = pcall(getmouseposition)
-    if s and mPos then RCM.State.MousePos = mPos end
-    if workspace.CurrentCamera then RCM.State.ScreenSize = workspace.CurrentCamera.ViewportSize end
+SecGun:Slider({
+    Name = "Hitchance",
+    Min = 0, Max = 100, Default = 50
+})
 
-    local lDown = isleftpressed()
-    if lDown and not RCM.State.MouseDown then RCM.State.MouseDown = true
-    elseif lDown and RCM.State.MouseDown then RCM.State.MouseHeld = true
-    elseif not lDown then
-        RCM.State.MouseDown = false; RCM.State.MouseHeld = false
-        RCM.State.Watermark.Dragging = false
-        for _, win in ipairs(RCM.State.InfoWindows) do win.dragging = false end
-        for _, win in ipairs(RCM.Windows) do win.dragging = false end
-        for _, wid in ipairs(RCM.Widgets) do wid.dragging = false; wid.resizing = false end
-        RCM.State.Snapping.ActiveLines = {} 
+SecGun:Dropdown({
+    Name = "Hitbox",
+    Options = {"Head", "Chest", "Pelvis"},
+    Default = "Head",
+    Callback = function(v)
+        RCM:Notify("Target set to: " .. v, 2)
     end
+})
 
-    local rDown = isrightpressed()
-    if rDown and not RCM.State.RightMouseDown then RCM.State.RightMouseDown = true
-    elseif rDown and RCM.State.RightMouseDown then RCM.State.RightMouseHeld = true
-    elseif not rDown then RCM.State.RightMouseDown = false; RCM.State.RightMouseHeld = false end
+-- ============================================================================
+-- [ TAB 2 ] VISUALS (Color Pickers)
+-- ============================================================================
+local TabVis = Window:Page({ Name = "Visuals" })
+local SecEsp = TabVis:Section({ Name = "ESP", Side = "Left" })
 
-    -- Popup Logic
-    if RCM.State.MouseDown and not RCM.State.MouseHeld and RCM.State.ActivePopup then
-        local p = RCM.State.ActivePopup
-        if not RCM:IsMouseOver(p.Pos, vector.create(130, 100, 0)) then RCM.State.ActivePopup = nil end
+SecEsp:Toggle({ Name = "Box ESP", Default = true })
+
+SecEsp:ColorPicker({
+    Name = "Box Color",
+    Default = Color3.fromRGB(255, 0, 0),
+    Callback = function(col)
+        -- Update ESP color here
     end
+})
 
-    local keys = getpressedkeys()
-    local isTogglePressed = false
-    local KeyMap = { [46] = "Delete", [45] = "Insert" }
-    
-    if keys then 
-        for _, k in ipairs(keys) do 
-            if k == RCM.State.ToggleKey or KeyMap[k] == RCM.State.ToggleKey then isTogglePressed = true break end 
-        end 
+-- ============================================================================
+-- [ TAB 3 ] SETTINGS (HUD Management)
+-- ============================================================================
+local TabSet = Window:Page({ Name = "Settings" })
+local SecHud = TabSet:Section({ Name = "Interface", Side = "Left" })
+
+SecHud:Toggle({
+    Name = "Show Watermark",
+    Default = true,
+    Callback = function(val)
+        RCM.State.Watermark.Visible = val
     end
+})
 
-    if isTogglePressed and (os.clock() - RCM.State.LastToggle > 0.3) then
-        RCM.State.Enabled = not RCM.State.Enabled; RCM.State.LastToggle = os.clock()
-    end
-
-    -- Animation Steps
-    local animSpeed = 10 * RCM.State.DeltaTime
-    local targetAlpha = RCM.State.Enabled and 1 or 0
-    RCM.State.MenuAlpha = RCM.Lerp(RCM.State.MenuAlpha, targetAlpha, animSpeed)
-    
-    -- Clamp alpha to clean 0 or 1 if very close
-    if math.abs(RCM.State.MenuAlpha - targetAlpha) < 0.01 then RCM.State.MenuAlpha = targetAlpha end
-
-    RCM.State.FrameCount = RCM.State.FrameCount + 1
-    if (os.clock() - RCM.State.LastTick) >= 1 then
-        RCM.State.CurrentFPS = RCM.State.FrameCount; RCM.State.FrameCount = 0; RCM.State.LastTick = os.clock()
-    end
-end
-
-function RCM:UpdateBinders()
-    local keys = getpressedkeys() or {}
-    local keyMap = {}
-    for _, k in ipairs(keys) do keyMap[k] = true end
-    for _, bind in ipairs(RCM.Binders) do
-        if bind.listening then
-            for _, k in ipairs(keys) do
-                if k ~= "Unknown" and k ~= "LeftMouse" and k ~= "RightMouse" then
-                    bind.key = k; bind.listening = false;
-                    if bind.callback then bind.callback(bind.key) end
-                    if bind.flag then RCM.Flags[bind.flag] = { Key = k, Mode = bind.mode } end
-                end
-            end
-        else
-            local isKeyDown = keyMap[bind.key] == true
-            if bind.mode == "Always" then bind.active = true
-            elseif bind.mode == "Hold" then bind.active = isKeyDown
-            elseif bind.mode == "Toggle" then if isKeyDown and not bind.lastState then bind.active = not bind.active end end
-            bind.lastState = isKeyDown
+SecHud:Toggle({
+    Name = "Show Keybinds",
+    Default = true,
+    Callback = function(val)
+        -- FIXED: Access KeybindWidget via State and toggle .visible
+        if RCM.State.KeybindWidget then
+            RCM.State.KeybindWidget.visible = val
         end
     end
-end
+})
 
-function RCM:IsMouseOver(pos, size)
-    local m = RCM.State.MousePos
-    return m.x >= pos.x and m.x <= pos.x + size.x and m.y >= pos.y and m.y <= pos.y + size.y
-end
-
-function RCM:SetWatermark(text) RCM.State.Watermark.Text = text end
-function RCM:Notify(msg, duration) table.insert(RCM.Notifications, {id = os.clock()..math.random(), text = msg, duration = duration or 3, start = os.clock(), alpha = 0, slide = -50}) end
-function RCM:SetEditMode(val) RCM.State.EditMode = val end
-
-function RCM:ReorderWidget(widget, action)
-    local index = nil
-    for i, w in ipairs(RCM.Widgets) do if w == widget then index = i break end end
-    if not index then return end
-    table.remove(RCM.Widgets, index)
-    if action == "Front" then table.insert(RCM.Widgets, widget) 
-    elseif action == "Back" then table.insert(RCM.Widgets, 1, widget) end
-end
-
-function RCM:GetSnapTargets(currentObj)
-    local screen = RCM.State.ScreenSize
-    local targetsX = { 0, screen.x / 2, screen.x } 
-    local targetsY = { 0, screen.y / 2, screen.y } 
-    local function Add(other)
-        if other == currentObj then return end
-        if not other.pos or not other.size then return end
-        table.insert(targetsX, other.pos.x); table.insert(targetsX, other.pos.x + other.size.x)
-        table.insert(targetsY, other.pos.y); table.insert(targetsY, other.pos.y + other.size.y)
+SecHud:Button({
+    Name = "Test Notification",
+    Callback = function()
+        RCM:Notify("Hello! This is a test notification.", 5)
     end
-    for _, w in ipairs(RCM.Windows) do Add(w) end
-    for _, w in ipairs(RCM.Widgets) do Add(w) end
-    if RCM.State.Watermark.Visible then Add({pos=RCM.State.Watermark.Pos, size=vector.create(150, 22, 0)}) end
-    return targetsX, targetsY
-end
+})
 
-function RCM:CalculateDragSnap(currentObj, rawPos)
-    local snapPos = rawPos; local objSize = currentObj.size or vector.create(0,0,0)
-    local targetsX, targetsY = self:GetSnapTargets(currentObj)
-    local screen = RCM.State.ScreenSize; local threshold, lockDist = 15, 8
-    RCM.State.Snapping.ActiveLines = {} 
-    local anchorsX = { 0, objSize.x / 2, objSize.x }
-    local anchorsY = { 0, objSize.y / 2, objSize.y }
-    local function CheckAxis(val, anchors, targets, isX)
-        local best = nil; local minD = threshold
-        for _, off in ipairs(anchors) do
-            local pt = val + off
-            for _, t in ipairs(targets) do
-                local diff = math.abs(pt - t)
-                if diff < threshold then
-                    local alpha = 1 - (diff / threshold)
-                    local ls, le
-                    if isX then ls=vector.create(t,0,RCM.Layer.Snap); le=vector.create(t,screen.y,0)
-                    else ls=vector.create(0,t,RCM.Layer.Snap); le=vector.create(screen.x,t,0) end
-                    table.insert(RCM.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
-                    if diff < lockDist and diff < minD then minD = diff; best = t - off end
-                end
-            end
-        end
-        return best or val
+SecHud:Button({
+    Name = "Unload",
+    Callback = function()
+        RCM.State.Enabled = false
     end
-    return vector.create(CheckAxis(rawPos.x, anchorsX, targetsX, true), CheckAxis(rawPos.y, anchorsY, targetsY, false), 0)
-end
-
-function RCM:CalculateResizeSnap(currentObj, rawSize)
-    local snapSize = rawSize; local pos = currentObj.pos
-    local targetsX, targetsY = self:GetSnapTargets(currentObj)
-    local screen = RCM.State.ScreenSize; local threshold, lockDist = 15, 8
-    RCM.State.Snapping.ActiveLines = {}
-    local function CheckAxis(currentSizeVal, posVal, targets, isX)
-        local edge = posVal + currentSizeVal; local best = nil; local minD = threshold
-        for _, t in ipairs(targets) do
-            local diff = math.abs(edge - t)
-            if diff < threshold then
-                local alpha = 1 - (diff / threshold)
-                local ls, le
-                if isX then ls=vector.create(t,0,RCM.Layer.Snap); le=vector.create(t,screen.y,0)
-                else ls=vector.create(0,t,RCM.Layer.Snap); le=vector.create(screen.x,t,0) end
-                table.insert(RCM.State.Snapping.ActiveLines, {A=ls, B=le, Alpha=alpha})
-                if diff < lockDist and diff < minD then minD = diff; best = t - posVal end
-            end
-        end
-        return best or currentSizeVal
-    end
-    snapSize = vector.create(math.max(CheckAxis(rawSize.x, pos.x, targetsX, true), currentObj.minSize.x), math.max(CheckAxis(rawSize.y, pos.y, targetsY, false), currentObj.minSize.y), 0)
-    return snapSize
-end
-
-function RCM:DrawSnapLines()
-    if not RCM.State.InputBusy then return end 
-    for _, line in ipairs(RCM.State.Snapping.ActiveLines) do
-        RCM.Line(line.A, line.B, RCM.Theme.SnapLine, line.Alpha, 2)
-    end
-end
-
-function RCM:CreateWidget(props)
-    local widget = {
-        name = props.Name or "Widget",
-        pos = props.Position or vector.create(100, 100, 0),
-        size = props.Size or vector.create(100, 100, 0),
-        minSize = props.MinSize or vector.create(50, 30, 0),
-        resizable = (props.Resizable == nil and true) or props.Resizable, 
-        draw = props.Draw, 
-        dragging = false, resizing = false,
-        dragOffset = vector.create(0,0,0),
-        pinned = false 
-    }
-    table.insert(RCM.Widgets, widget)
-    return widget
-end
-
-function RCM:HandleDraggable(obj, ignoreEditMode, dragSize)
-    if not RCM.State.Enabled or (not RCM.State.EditMode and not ignoreEditMode) then
-        obj.dragging = false; obj.resizing = false; return
-    end
-
-    local click = RCM.State.MouseDown and not RCM.State.MouseHeld
-    local rClick = RCM.State.RightMouseDown and not RCM.State.RightMouseHeld
-    
-    local hitSize = dragSize or obj.size
-    local hovered = RCM:IsMouseOver(obj.pos, hitSize)
-
-    if not RCM.State.InputBusy then
-        if hovered and rClick and RCM.State.EditMode then 
-            local t = "Widget"
-            if obj.pages then t = "Window" end
-            RCM.State.ActivePopup = { Type = t, Obj = obj, Pos = RCM.State.MousePos } 
-        end
-        
-        if obj.resizable and RCM.State.EditMode then
-            local handleSize = 15; local handlePos = vector.create(obj.pos.x + obj.size.x - handleSize, obj.pos.y + obj.size.y - handleSize, 0)
-            if click and RCM:IsMouseOver(handlePos, vector.create(handleSize, handleSize, 0)) then obj.resizing = true end
-        end
-        
-        if not obj.resizing and click and hovered then 
-            obj.dragging = true
-            obj.dragOffset = vector.create(RCM.State.MousePos.x - obj.pos.x, RCM.State.MousePos.y - obj.pos.y, 0) 
-        end
-    end
-    
-    if obj.resizing then
-        if RCM.State.MouseDown then
-            local rawSize = vector.create(RCM.State.MousePos.x - obj.pos.x, RCM.State.MousePos.y - obj.pos.y, 0)
-            obj.size = RCM:CalculateResizeSnap(obj, rawSize); RCM.State.InputBusy = true
-        else obj.resizing = false end
-    elseif obj.dragging then
-        if RCM.State.MouseDown then
-            local rawPos = vector.create(RCM.State.MousePos.x - obj.dragOffset.x, RCM.State.MousePos.y - obj.dragOffset.y, 0)
-            obj.pos = RCM:CalculateDragSnap(obj, rawPos); RCM.State.InputBusy = true
-        else obj.dragging = false end
-    end
-
-    if obj.resizable and RCM.State.Enabled and RCM.State.EditMode then
-        local p = obj.pos; local s = obj.size; local hs = 10 
-        local c = (obj.resizing) and RCM.Theme.Accent or RCM.Theme.ResizeHandle
-        local z = RCM.Layer.Widget+5
-        RCM.Triangle(vector.create(p.x+s.x, p.y+s.y, z), vector.create(p.x+s.x-hs, p.y+s.y, z), vector.create(p.x+s.x, p.y+s.y-hs, z), c, (1 * RCM.State.MenuAlpha))
-    end
-end
-
-function RCM:DrawStandardInterface()
-    local dt = RCM.State.DeltaTime
-    
-    -- Watermark
-    if RCM.State.Watermark.Visible then
-        local pinned = RCM.State.Watermark.Pinned
-        if RCM.State.Enabled or pinned then
-            local alpha = (pinned and not RCM.State.Enabled) and 1 or RCM.State.MenuAlpha
-            if alpha > 0.01 then
-                local p, t = RCM.State.Watermark.Pos, RCM.State.Watermark.Text
-                if RCM.State.Watermark.Extra then 
-                    local plrName = "Unknown"
-                    if game and game:GetService("Players") and game:GetService("Players").LocalPlayer then plrName = game:GetService("Players").LocalPlayer.Name end
-                    t = t .. " | " .. plrName 
-                end
-                local sz = vector.create((7*#t)+20, 24, 0)
-                
-                if RCM.State.EditMode and RCM:IsMouseOver(p, sz) then
-                    if RCM.State.RightMouseDown and not RCM.State.RightMouseHeld then
-                        RCM.State.ActivePopup = { Type = "Element", Obj = RCM.State.Watermark, Pos = RCM.State.MousePos, Name = "Watermark" }
-                    end
-                end
-
-                if RCM.State.Enabled and not RCM.State.InputBusy then
-                    if RCM.State.EditMode and RCM.State.MouseDown and not RCM.State.MouseHeld and RCM:IsMouseOver(p, sz) then 
-                        RCM.State.Watermark.Dragging = true; RCM.State.Watermark.Offset = vector.create(RCM.State.MousePos.x-p.x, RCM.State.MousePos.y-p.y, 0) 
-                    end
-                    if RCM.State.Watermark.Dragging then
-                        if RCM.State.MouseDown then
-                            local raw = vector.create(RCM.State.MousePos.x-RCM.State.Watermark.Offset.x, RCM.State.MousePos.y-RCM.State.Watermark.Offset.y, 0)
-                            local dummy = { pos=raw, size=sz } 
-                            p = RCM:CalculateDragSnap(dummy, raw); RCM.State.Watermark.Pos = p; RCM.State.InputBusy = true
-                        else RCM.State.Watermark.Dragging = false end
-                    end
-                end
-                
-                RCM.RectStatic(p, sz, RCM.Theme.Border, alpha)
-                RCM.RectStatic(vector.create(p.x+1,p.y+1,1), vector.create(sz.x-2,sz.y-2,0), RCM.Theme.Background, alpha)
-                RCM.RectStatic(p, vector.create(2,sz.y,0), RCM.Theme.Accent, alpha)
-                RCM.LabelStatic(vector.create(p.x+10,p.y+5,3), t, RCM.Theme.Text, false, alpha)
-            end
-        end
-    end
-    
-    -- Notifications (Animated Slide)
-    local startY = 60
-    for i=#RCM.Notifications, 1, -1 do
-        local n = RCM.Notifications[i]; local el = os.clock()-n.start; local rem = n.duration-el
-        
-        n.slide = RCM.Lerp(n.slide, 0, dt * 10)
-        n.alpha = RCM.Lerp(n.alpha, 1, dt * 10)
-        
-        if rem <= 0 then 
-            n.alpha = RCM.Lerp(n.alpha, 0, dt * 15)
-            if n.alpha < 0.05 then table.remove(RCM.Notifications, i) end
-        end
-        
-        if rem > 0 or n.alpha > 0.05 then
-            local bw = (7*#n.text)+20
-            local targetX = RCM.State.ScreenSize.x - bw - 20
-            local px = targetX + n.slide
-            
-            RCM.RectStatic(vector.create(px,startY,200), vector.create(bw,28,0), RCM.Theme.Border, n.alpha)
-            RCM.RectStatic(vector.create(px+1,startY+1,200), vector.create(bw-2,26,0), RCM.Theme.Background, n.alpha)
-            RCM.LabelStatic(vector.create(px+10,startY+6,200), n.text, RCM.Theme.Text, false, n.alpha)
-            local pct = math.clamp(rem/n.duration, 0, 1)
-            RCM.RectStatic(vector.create(px+1,startY+25,200), vector.create((bw-2)*pct,2,0), RCM.Theme.Accent, n.alpha)
-            startY = startY + 38
-        end
-    end
-
-    if RCM.State.EditMode and RCM.State.Enabled and RCM.State.MenuAlpha > 0.01 then
-        local st = "LAYOUT EDITOR ENABLED"; local sw = 7 * #st
-        local sp = vector.create((RCM.State.ScreenSize.x/2)-(sw/2), 10, RCM.Layer.Notif)
-        RCM.Rect(vector.create(sp.x-8, sp.y-4, 0), vector.create(sw+16, 22, 0), RCM.Theme.Background, 0.9 * RCM.State.MenuAlpha)
-        RCM.Outline(vector.create(sp.x-8, sp.y-4, 0), vector.create(sw+16, 22, 0), RCM.Theme.EditModeText, 1 * RCM.State.MenuAlpha)
-        RCM.Label(sp, st, RCM.Theme.EditModeText, false, 1 * RCM.State.MenuAlpha)
-    end
-end
-
-function RCM:ProcessInfoWindowsInput()
-    if not RCM.State.Enabled then return end
-    for i = #RCM.State.InfoWindows, 1, -1 do
-        local win = RCM.State.InfoWindows[i]
-        local w, hh = win.size.x, 26
-        
-        local ch = 10
-        for _, it in ipairs(win.items) do ch=ch+(it.type=="sep" and 8 or 16) end
-        local th = hh + ch
-        win.size = vector.create(w, th, 0)
-
-        if not RCM.State.InputBusy or win.dragging then
-            local click = RCM.State.MouseDown and not RCM.State.MouseHeld
-            if click and RCM:IsMouseOver(vector.create(win.pos.x+w-25, win.pos.y+2, 0), vector.create(20,20,0)) then table.remove(RCM.State.InfoWindows, i); RCM.State.InputBusy = true; return end
-            if RCM:IsMouseOver(win.pos, vector.create(w, hh, 0)) and click then win.dragging = true; win.dragOffset = vector.create(RCM.State.MousePos.x-win.pos.x, RCM.State.MousePos.y-win.pos.y, 0); table.insert(RCM.State.InfoWindows, table.remove(RCM.State.InfoWindows, i)); RCM.State.InputBusy = true; return end
-            if click and RCM:IsMouseOver(win.pos, win.size) then
-                local cy = win.pos.y + hh + 5
-                for _, item in ipairs(win.items) do
-                    if item.type=="link" and RCM:IsMouseOver(vector.create(win.pos.x+10,cy,0), vector.create(7*#item.text, 14, 0)) then if item.callback then item.callback() end end
-                    cy = cy + (item.type=="sep" and 8 or 16)
-                end
-                RCM.State.InputBusy = true; return
-            end
-        end
-        if win.dragging then 
-            if RCM.State.MouseDown then local raw = vector.create(RCM.State.MousePos.x-win.dragOffset.x, RCM.State.MousePos.y-win.dragOffset.y, 0); win.pos = RCM:CalculateDragSnap(win, raw); RCM.State.InputBusy = true 
-            else win.dragging = false end
-        end
-    end
-end
-
-function RCM:RenderInfoWindows()
-    if RCM.State.MenuAlpha < 0.01 then return end
-    for i, win in ipairs(RCM.State.InfoWindows) do
-        local w, hh = win.size.x, 26
-        local z = RCM.Layer.InfoWin + i
-        RCM.Rect(win.pos, win.size, RCM.Theme.Border, 1)
-        RCM.Rect(vector.create(win.pos.x+1,win.pos.y+1,z), vector.create(w-2, win.size.y-2, 0), RCM.Theme.InfoWinBg, 1)
-        RCM.Rect(vector.create(win.pos.x+1,win.pos.y+1,z), vector.create(w-2, hh, 0), RCM.Theme.Header, 1)
-        RCM.Label(vector.create(win.pos.x+10, win.pos.y+6, z+1), win.title, RCM.Theme.Text)
-        RCM.Label(vector.create(win.pos.x+w-18, win.pos.y+6, z+1), "x", RCM.Theme.Negative)
-        local cy = win.pos.y + hh + 5
-        for _, item in ipairs(win.items) do
-            if item.type == "text" then RCM.Label(vector.create(win.pos.x+10, cy, z+1), item.text, RCM.Theme.TextDim); cy = cy + 16
-            elseif item.type == "link" then 
-                local col = RCM.Theme.Link; if RCM:IsMouseOver(vector.create(win.pos.x+10, cy, 0), vector.create(7*#item.text, 14, 0)) then col = RCM.Theme.Accent end
-                RCM.Label(vector.create(win.pos.x+10, cy, z+1), item.text, col); RCM.Rect(vector.create(win.pos.x+10, cy+13, z+1), vector.create(7*#item.text, 1, 0), col, 1); cy = cy + 16
-            elseif item.type == "sep" then RCM.Rect(vector.create(win.pos.x+10, cy+3, z+1), vector.create(w-20,1,0), RCM.Theme.Border, 0.5); cy = cy + 8 end
-        end
-    end
-end
-
-local function LibraryWindow(props)
-    if props.ToggleKey then RCM.State.ToggleKey = props.ToggleKey end
-    if RCM.Windows[1] then RCM.Windows[1].name = props.Name or RCM.Windows[1].name; return RCM.Windows[1] end
-
-    local window = { 
-        name = props.Name or "UI", 
-        pos = props.Position or vector.create(200,200,0), 
-        size = vector.create(WIN_W, 30, 0), 
-        dragging=false, dragOffset=vector.create(0,0,0), 
-        pages={}, activePage=1, pinned=false,
-        
-        -- Animation State
-        tabAlpha = 1,
-        activePagePrev = 1
-    }
-
-    function window:Draw()
-        -- VISIBILITY: Enabled OR Pinned
-        if not (RCM.State.Enabled or self.pinned) then return end
-        
-        local dt = RCM.State.DeltaTime
-        
-        -- Tab Switching Animation logic
-        if self.activePage ~= self.activePagePrev then
-            self.tabAlpha = 0 -- Reset Alpha
-            self.activePagePrev = self.activePage
-        end
-        self.tabAlpha = RCM.Lerp(self.tabAlpha, 1, dt * 10)
-
-        local page = self.pages[self.activePage]; local lY, rY = 55, 55
-        
-        -- Calculate Height first (invisible pass)
-        if page then
-            for _, s in ipairs(page.sections) do
-                local h = 28
-                for _, it in ipairs(s.items) do
-                    local add = 28 
-                    if it.type == "dropdown" and it.open then add = add + (#it.options * 22) + 6 end
-                    if it.type == "colorpicker" and it.open then add = add + 75 end
-                    h = h + add
-                end
-                if s.side == "Left" then s.ry = lY; lY=lY+h+12 else s.ry = rY; rY=rY+h+12 end
-            end
-        end
-        local totalH = math.max(lY, rY)
-        self.size = vector.create(WIN_W, totalH + 20, 0)
-
-        local headH = 34
-        RCM:HandleDraggable(self, true, vector.create(WIN_W, headH, 0))
-        
-        local x, y, z = self.pos.x, self.pos.y, RCM.Layer.Base
-        local click = RCM.State.MouseDown and not RCM.State.MouseHeld
-        if RCM.State.InputBusy and not self.dragging then click = false end
-
-        -- Draw Main Window (Respects Menu Alpha)
-        RCM.Rect(vector.create(x,y,z), self.size, RCM.Theme.Border, 1)
-        RCM.Rect(vector.create(x+1,y+1,z), vector.create(WIN_W-2, totalH+18,0), RCM.Theme.Background, 1)
-        RCM.Rect(vector.create(x+1,y+1,z), vector.create(WIN_W-2,headH,0), RCM.Theme.Header, 1)
-        RCM.Label(vector.create(x+12,y+10,z+1), self.name, RCM.Theme.Text)
-        RCM.Line(vector.create(x+1,y+headH,z), vector.create(x+WIN_W-1,y+headH,z), RCM.Theme.Border, 1, 1)
-
-        -- Draw Tabs
-        local tx = 130 
-        for i, pg in ipairs(self.pages) do
-            local w = (7*#pg.name)+20
-            if click and RCM:IsMouseOver(vector.create(x+tx,y+1,0), vector.create(w,headH,0)) then self.activePage = i end
-            
-            local isActive = (self.activePage == i)
-            RCM.Label(vector.create(x+tx+10,y+10,z+1), pg.name, isActive and RCM.Theme.Accent or RCM.Theme.TextDim)
-            if isActive then 
-                RCM.Rect(vector.create(x+tx,y+headH-2,z+1), vector.create(w,2,0), RCM.Theme.Accent, 1)
-                RCM.Rect(vector.create(x+tx,y+1,z), vector.create(w,headH-2,0), RCM.Theme.Accent, 0.05)
-            end
-            tx = tx + w
-        end
-        
-        -- Draw Content with Tab Alpha + Menu Alpha
-        local contentAlpha = self.tabAlpha * RCM.State.MenuAlpha
-        if contentAlpha < 0.01 then return end
-
-        if page then
-            for _, sect in ipairs(page.sections) do
-                local sx = (sect.side == "Left") and (x+12) or (x+12+COL_W+12); local sy = y+sect.ry
-                local sh = 28
-                for _, it in ipairs(sect.items) do
-                    local add = 28
-                    if it.type=="dropdown" and it.open then add=add+(#it.options*22)+6 end
-                    if it.type=="colorpicker" and it.open then add=add+75 end
-                    sh = sh + add
-                end
-                
-                -- Section Visuals
-                RCM.RectStatic(vector.create(sx,sy,z+1), vector.create(COL_W,sh,0), RCM.Theme.Border, contentAlpha)
-                RCM.RectStatic(vector.create(sx+1,sy+1,z+1), vector.create(COL_W-2,sh-2,0), RCM.Theme.SectionBg, contentAlpha)
-                RCM.RectStatic(vector.create(sx+1,sy+1,z+2), vector.create(COL_W-2, 22, 0), RCM.Theme.Header, contentAlpha)
-                RCM.LabelStatic(vector.create(sx+8,sy+5,z+3), sect.name, RCM.Theme.TextDim, false, contentAlpha)
-                RCM.Line(vector.create(sx+1,sy+23,z+2), vector.create(sx+COL_W-1,sy+23,z+2), RCM.Theme.Border, contentAlpha, 1)
-
-                local cy = sy + 30
-                for _, item in ipairs(sect.items) do
-                    -- Init Animation State for Items
-                    if not item.anim then item.anim = { slide = 0, color = 0, hover = 0 } end
-                    
-                    local nmX, valX = sx+10, sx+COL_W-15
-                    local iH = 28
-                    local itemPos = vector.create(sx+4, cy-2, 0)
-                    local hover = RCM:IsMouseOver(itemPos, vector.create(COL_W-8, 24, 0))
-                    local iClick = hover and click
-                    
-                    -- Update Hover Anim
-                    item.anim.hover = RCM.Lerp(item.anim.hover, hover and 1 or 0, dt * 10)
-                    
-                    if item.type == "toggle" then
-                        if iClick then item.value = not item.value; if item.callback then item.callback(item.value) end; if item.flag then RCM.Flags[item.flag] = item.value end end
-                        
-                        -- Anim
-                        local targetSlide = item.value and 1 or 0
-                        item.anim.slide = RCM.Lerp(item.anim.slide, targetSlide, dt * 12)
-                        
-                        RCM.LabelStatic(vector.create(nmX, cy+4, z+3), item.name, item.value and RCM.Theme.Text or RCM.Theme.TextDim, false, contentAlpha)
-                        
-                        local swW, swH = 22, 12
-                        local swX = valX - swW
-                        local baseCol = RCM.Theme.SwitchBg
-                        local activeCol = RCM.Theme.Accent
-                        -- Lerp Color
-                        local curCol = RCM.LerpColor(baseCol, activeCol, item.anim.slide)
-                        
-                        RCM.Circle(vector.create(swX, cy+10, z+3), 6, curCol, contentAlpha)
-                        RCM.Circle(vector.create(swX+12, cy+10, z+3), 6, curCol, contentAlpha)
-                        RCM.RectStatic(vector.create(swX, cy+4, z+3), vector.create(12, 12, 0), curCol, contentAlpha)
-                        
-                        -- Knob Position
-                        local knX = swX + (12 * item.anim.slide)
-                        RCM.Circle(vector.create(knX, cy+10, z+4), 4, RCM.Theme.Text, contentAlpha)
-
-                    elseif item.type == "slider" then
-                        if hover and isleftpressed() and not RCM.State.InputBusy then
-                            local valStr = tostring(item.value); local vw = 7*#valStr
-                            local bx = valX - vw - 15 - 100
-                            local pct = math.clamp((RCM.State.MousePos.x - bx) / 100, 0, 1)
-                            local nv = math.floor(item.min + (item.max - item.min) * pct)
-                            if nv ~= item.value then item.value = nv; if item.callback then item.callback(nv) end; if item.flag then RCM.Flags[item.flag] = nv end end
-                        end
-                        RCM.LabelStatic(vector.create(nmX, cy + 4, z+3), item.name, RCM.Theme.Text, false, contentAlpha)
-                        
-                        local valStr = tostring(item.value)
-                        local valW = 7 * #valStr
-                        RCM.LabelStatic(vector.create(valX - valW, cy + 4, z+3), valStr, RCM.Theme.TextDim, false, contentAlpha)
-                        
-                        local barW = 100
-                        local barX = valX - valW - 15 - barW
-                        local barY = cy + 10
-                        
-                        RCM.RectStatic(vector.create(barX, barY, z+3), vector.create(barW, 2, 0), RCM.Theme.SwitchBg, contentAlpha)
-                        
-                        local targetFill = ((item.value - item.min)/(item.max - item.min)) * barW
-                        item.anim.slide = RCM.Lerp(item.anim.slide, targetFill, dt * 15)
-                        
-                        RCM.RectStatic(vector.create(barX, barY, z+3), vector.create(item.anim.slide, 2, 0), RCM.Theme.Accent, contentAlpha)
-                        RCM.Circle(vector.create(barX+item.anim.slide, barY+1, z+4), 4, RCM.Theme.Text, contentAlpha)
-
-                    elseif item.type == "dropdown" then
-                        if iClick then item.open = not item.open end
-                        local dispText = item.selected
-                        if item.multi then
-                            local active = {}
-                            for k,v in pairs(item.selected) do if v then table.insert(active, k) end end
-                            if #active == 0 then dispText = "None" 
-                            elseif #active <= 3 then dispText = table.concat(active, ", ") 
-                            else dispText = #active .. " Selected" end
-                        end
-                        RCM.LabelStatic(vector.create(nmX, cy+4, z+3), FitText(item.name, 120), RCM.Theme.Text, false, contentAlpha)
-                        RCM.LabelStatic(vector.create(valX-(7*#dispText)-15, cy+4, z+3), dispText, RCM.Theme.Accent, false, contentAlpha)
-                        local triC = item.open and RCM.Theme.Accent or RCM.Theme.TextDim
-                        local cx, cy_c = valX-5, cy+10
-                        if item.open then
-                            RCM.Triangle(vector.create(cx, cy_c-3, z+3), vector.create(cx-4, cy_c+2, z+3), vector.create(cx+4, cy_c+2, z+3), triC, contentAlpha)
-                        else
-                            RCM.Triangle(vector.create(cx, cy_c+3, z+3), vector.create(cx-4, cy_c-2, z+3), vector.create(cx+4, cy_c-2, z+3), triC, contentAlpha)
-                        end
-                        if item.open then
-                            local dy = cy + 28
-                            RCM.RectStatic(vector.create(sx+10, dy-2, z+4), vector.create(COL_W-20, #item.options*22 + 4, 0), RCM.Theme.Header, contentAlpha)
-                            RCM.Outline(vector.create(sx+10, dy-2, z+4), vector.create(COL_W-20, #item.options*22 + 4, 0), RCM.Theme.Border, contentAlpha)
-                            for _, opt in ipairs(item.options) do
-                                local oPos = vector.create(sx+12, dy, 0); local oSize = vector.create(COL_W-24, 20, 0)
-                                if RCM:IsMouseOver(oPos, oSize) then
-                                    RCM.RectStatic(oPos, oSize, RCM.Theme.Hover, contentAlpha)
-                                    if click then
-                                        if item.multi then item.selected[opt] = not item.selected[opt]; if item.callback then item.callback(item.selected) end; if item.flag then RCM.Flags[item.flag] = item.selected end
-                                        else item.selected = opt; item.open = false; if item.callback then item.callback(opt) end; if item.flag then RCM.Flags[item.flag] = opt end end
-                                    end
-                                end
-                                local isSel = false; if item.multi then isSel = item.selected[opt] else isSel = (item.selected == opt) end
-                                RCM.LabelStatic(vector.create(sx+18, dy+3, z+5), opt, isSel and RCM.Theme.Accent or RCM.Theme.Text, false, contentAlpha)
-                                dy = dy + 22
-                            end
-                            iH = iH + (#item.options * 22) + 6
-                        end
-                    elseif item.type == "button" then
-                        if item.anim.hover > 0.01 then
-                            RCM.RectStatic(vector.create(sx+8, cy+2, z+2), vector.create(COL_W-16, 20, 0), RCM.Theme.Hover, item.anim.hover * contentAlpha)
-                        end
-                        RCM.Outline(vector.create(sx+8, cy+2, z+2), vector.create(COL_W-16, 20, 0), RCM.Theme.Border, contentAlpha)
-                        if iClick and item.callback then item.callback() end
-                        
-                        -- Text Color Lerp
-                        local txtCol = RCM.LerpColor(RCM.Theme.Text, RCM.Theme.Accent, item.anim.hover)
-                        RCM.LabelStatic(vector.create(nmX, cy+4, z+3), item.name, txtCol, false, contentAlpha)
-                    
-                    elseif item.type == "colorpicker" then
-                        if iClick then item.open = not item.open end
-                        RCM.LabelStatic(vector.create(nmX, cy + 4, z+3), item.name, RCM.Theme.Text, false, contentAlpha)
-                        RCM.RectStatic(vector.create(valX - 20, cy + 6, z+3), vector.create(20, 10, 0), item.color, contentAlpha)
-                        if item.open then
-                            local py = cy + 28
-                            local function slider(c, v, m)
-                                if RCM:IsMouseOver(vector.create(sx+15, py, 0), vector.create(COL_W-30, 15, 0)) and isleftpressed() then
-                                    local p = math.clamp((RCM.State.MousePos.x - (sx+40)) / 150, 0, 1)
-                                    v = math.floor(p * m)
-                                end
-                                RCM.LabelStatic(vector.create(sx+20, py, z+4), c, RCM.Theme.TextDim, false, contentAlpha)
-                                RCM.RectStatic(vector.create(sx+40, py+6, z+4), vector.create(150, 2, 0), RCM.Theme.SwitchBg, contentAlpha)
-                                RCM.RectStatic(vector.create(sx+40, py+6, z+4), vector.create((v/m)*150, 2, 0), RCM.Theme.Accent, contentAlpha)
-                                RCM.Circle(vector.create(sx+40+(v/m)*150, py+7, z+5), 3, RCM.Theme.Text, contentAlpha)
-                                py = py + 20
-                                return v
-                            end
-                            local r = slider("R", math.floor(item.color.R*255), 255)
-                            local g = slider("G", math.floor(item.color.G*255), 255)
-                            local b = slider("B", math.floor(item.color.B*255), 255)
-                            local nc = Color3.fromRGB(r,g,b)
-                            if nc ~= item.color then item.color = nc; if item.callback then item.callback(nc) end; if item.flag then RCM.Flags[item.flag] = {R=nc.R, G=nc.G, B=nc.B} end end
-                            iH = iH + 75
-                        end
-                    elseif item.type == "binder" then
-                        if iClick then item.listening = not item.listening end
-                        if (RCM.State.RightMouseDown and not RCM.State.RightMouseHeld) and hover then RCM.State.ActivePopup = { BindItem = item, Pos = RCM.State.MousePos, Type = "Binder" } end
-                        local txt = "[" .. (item.listening and "?" or item.key) .. "]"
-                        local keyW = (7 * #txt)
-                        RCM.LabelStatic(vector.create(nmX, cy + 4, z+3), FitText(item.name, 230 - keyW), RCM.Theme.Text, false, contentAlpha)
-                        RCM.LabelStatic(vector.create(valX - keyW, cy + 4, z+3), txt, item.listening and RCM.Theme.Accent or RCM.Theme.TextDim, false, contentAlpha)
-                    end
-
-                    if item.tooltip then
-                         local tipPos = vector.create(nmX + (7*#item.name) + 8, cy+4, z+3)
-                         RCM.LabelStatic(tipPos, "?", RCM.Theme.TextDim, false, contentAlpha)
-                         if RCM:IsMouseOver(tipPos, vector.create(15,13,0)) then RCM.State.ActiveTooltip = item.tooltip end
-                    end
-                    cy = cy + iH
-                end
-            end
-        end
-    end
-    
-    function window:Page(p)
-        for _, pg in ipairs(self.pages) do if pg.name == p.Name then return pg end end
-        local pg = {name=p.Name, sections={}}
-        function pg:Section(p)
-            local sec = {name=p.Name, side=p.Side or "Left", items={}}
-            function sec:Toggle(p) table.insert(sec.items, {type="toggle", name=p.Name, value=p.Default or false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}); if p.Flag then RCM.Flags[p.Flag] = p.Default or false end end
-            function sec:Slider(p) table.insert(sec.items, {type="slider", name=p.Name, value=p.Default or p.Min, min=p.Min, max=p.Max, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}); if p.Flag then RCM.Flags[p.Flag] = p.Default or p.Min end end
-            function sec:Dropdown(p) local sel = p.Default; if p.Multi and type(sel) ~= "table" then sel = {}; end table.insert(sec.items, {type="dropdown", name=p.Name, options=p.Options, selected=sel, open=false, multi=p.Multi, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}); if p.Flag then RCM.Flags[p.Flag] = sel end end
-            function sec:Button(p) table.insert(sec.items, {type="button", name=p.Name, callback=p.Callback, tooltip=p.Tooltip}) end
-            function sec:ColorPicker(p) local c = p.Default or Color3.new(1,1,1); table.insert(sec.items, {type="colorpicker", name=p.Name, color=c, open=false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}); if p.Flag then RCM.Flags[p.Flag] = {R=c.R, G=c.G, B=c.B} end end
-            function sec:Binder(p) local b = {type="binder", name=p.Name, key=p.Default or "None", mode="Hold", active=false, listening=false, callback=p.Callback, flag=p.Flag, tooltip=p.Tooltip}; table.insert(sec.items, b); table.insert(RCM.Binders, b); if p.Flag then RCM.Flags[p.Flag] = { Key = b.key, Mode = b.mode } end end
-            table.insert(pg.sections, sec)
-            return sec
-        end
-        table.insert(self.pages, pg)
-        return pg
-    end
-    return window
-end
-
-function RCM:CreateWindow(p) local w=LibraryWindow(p); table.insert(self.Windows, w); return w end
-
-function RCM:OpenInfoWindow(title, content)
-    for i, win in ipairs(RCM.State.InfoWindows) do if win.title == title then table.remove(RCM.State.InfoWindows, i) break end end
-    local processedLines = {}
-    if type(content) == "table" then
-        for _, item in ipairs(content) do
-            if type(item) == "string" then for _, l in ipairs(WrapText(item, 40)) do table.insert(processedLines, {type="text", text=l}) end
-            elseif type(item) == "table" then
-                if item.Text then table.insert(processedLines, {type="link", text=item.Text, callback=item.Callback})
-                elseif item.Type == "sep" then table.insert(processedLines, {type="sep"}) end
-            end
-        end
-    end
-    local last = RCM.State.InfoWindows[#RCM.State.InfoWindows]
-    local spawn = last and vector.create(last.pos.x+20, last.pos.y+20, 0) or vector.create((RCM.State.ScreenSize.x/2)-150, (RCM.State.ScreenSize.y/2)-100, 0)
-    local win = {id=os.clock()..math.random(), title=title, items=processedLines, pos=spawn, dragging=false, dragOffset=vector.create(0,0,0), size=vector.create(300, 200, 0)} 
-    table.insert(RCM.State.InfoWindows, win)
-end
-
-function RCM:DrawPopup()
-    if not RCM.State.ActivePopup then return end
-    local p = RCM.State.ActivePopup; local pos = p.Pos
-    local opts, title = {}, ""
-    
-    if p.Type == "Binder" then title = "Bind Mode"; opts = {"Hold", "Toggle", "Always"}
-    elseif p.Type == "Widget" or p.Type == "Window" then 
-        title = "Options"; opts = {"Bring to Front", "Send to Back"} 
-        local isPinned = p.Obj.pinned or false
-        table.insert(opts, isPinned and "Unpin" or "Pin")
-    elseif p.Type == "Element" then 
-        title = p.Name; 
-        local isPinned = p.Obj.Pinned or false
-        opts = { isPinned and "Unpin" or "Pin" }
-    end
-    
-    local w, h = 130, (#opts*22)+28
-    RCM.RectStatic(pos, vector.create(w, h, 20), RCM.Theme.Border, 1)
-    RCM.RectStatic(vector.create(pos.x+1, pos.y+1, 20), vector.create(w-2, h-2, 0), RCM.Theme.Background, 1)
-    RCM.RectStatic(vector.create(pos.x+1, pos.y+1, 20), vector.create(w-2, 22, 0), RCM.Theme.Header, 1)
-    RCM.LabelStatic(vector.create(pos.x+8, pos.y+5, 21), title, RCM.Theme.Text)
-    
-    local cy = pos.y + 26
-    for _, m in ipairs(opts) do
-        local op = vector.create(pos.x+2, cy, 20); local os = vector.create(w-4, 20, 0)
-        local hov = RCM:IsMouseOver(op, os)
-        if hov then
-            RCM.RectStatic(op, os, RCM.Theme.Hover, 1)
-            if RCM.State.MouseDown and not RCM.State.MouseHeld then 
-                if p.Type == "Binder" then p.BindItem.mode = m
-                elseif p.Type == "Widget" or p.Type == "Window" then
-                    if m == "Bring to Front" then RCM:ReorderWidget(p.Obj, "Front")
-                    elseif m == "Send to Back" then RCM:ReorderWidget(p.Obj, "Back") 
-                    elseif m == "Pin" then p.Obj.pinned = true
-                    elseif m == "Unpin" then p.Obj.pinned = false end
-                elseif p.Type == "Element" then
-                    if m == "Pin" then p.Obj.Pinned = true
-                    elseif m == "Unpin" then p.Obj.Pinned = false end
-                end
-                RCM.State.ActivePopup = nil; return 
-            end
-        end
-        local col = RCM.Theme.TextDim
-        if p.Type == "Binder" and p.BindItem.mode == m then col = RCM.Theme.Accent end
-        if hov then col = RCM.Theme.Text end
-        RCM.LabelStatic(vector.create(pos.x+8, cy+3, 21), m, col)
-        cy = cy + 22
-    end
-end
-
-function RCM:Init()
-    local KeybindWidget = RCM:CreateWidget({
-        Name = "Keybinds",
-        Position = vector.create(60, 110, 0),
-        Size = vector.create(160, 50, 0), 
-        Resizable = false
-    })
-    
-    KeybindWidget.draw = function()
-        local itemsToShow = {}
-        for _, bind in ipairs(RCM.Binders) do 
-            if RCM.State.KeybindSettings.Mode == "Always" or (RCM.State.KeybindSettings.Mode == "Active" and bind.active) then 
-                table.insert(itemsToShow, bind) 
-            end 
-        end
-        
-        if #itemsToShow > 0 then
-            local p = KeybindWidget.pos
-            local mw = 160 
-            for _, b in ipairs(itemsToShow) do 
-                local tw = (7*#b.name)+(7*#b.key)+80 
-                if tw > mw then mw = tw end 
-            end
-            
-            local th = 26 + (#itemsToShow * 20) + 4
-            KeybindWidget.size = vector.create(mw, th, 0)
-            local sz = KeybindWidget.size
-            
-            local alpha = (KeybindWidget.pinned and not RCM.State.Enabled) and 1 or RCM.State.MenuAlpha
-            if alpha < 0.01 then return end
-            
-            RCM.RectStatic(p, sz, RCM.Theme.Border, alpha)
-            RCM.RectStatic(vector.create(p.x+1,p.y+1,1), vector.create(mw-2, th-2, 0), RCM.Theme.Background, alpha)
-            RCM.RectStatic(p, vector.create(mw, 24, 0), RCM.Theme.Header, alpha)
-            RCM.LabelStatic(vector.create(p.x+10, p.y+5, 3), "Keybinds", RCM.Theme.Text, false, alpha)
-            
-            local ky = p.y + 30
-            for _, b in ipairs(itemsToShow) do
-                local kt = "["..b.key.."]"; local mt = (b.mode=="Hold" and "[H]") or (b.mode=="Toggle" and "[T]") or "[A]"
-                local rightText = kt..mt
-                local rw = (7 * #rightText)
-                
-                RCM.LabelStatic(vector.create(p.x+10, ky, 3), b.name, RCM.Theme.TextDim, false, alpha)
-                local divX = p.x + mw - rw - 15
-                RCM.Line(vector.create(divX, ky+2, 3), vector.create(divX, ky+12, 3), RCM.Theme.Divider, 0.5 * alpha, 1)
-                RCM.LabelStatic(vector.create(p.x + mw - rw - 5, ky, 3), rightText, b.active and RCM.Theme.Accent or RCM.Theme.Text, false, alpha)
-                ky = ky + 20
-            end
-        end
-    end
-
-    local ren = game:GetService("RunService").Render
-    ren:Connect(function()
-        RCM.State.InputBusy = false
-        RCM.State.ActiveTooltip = nil 
-        
-        RCM:UpdateInput()
-        RCM:UpdateBinders()
-        
-        RCM:ProcessInfoWindowsInput()
-        
-        RCM:DrawStandardInterface()
-        for _, w in ipairs(RCM.Windows) do w:Draw() end
-        
-        RCM:HandleDraggableWidgets()
-        RCM:RenderInfoWindows() 
-        RCM:DrawPopup()
-        RCM:DrawSnapLines()
-        
-        if RCM.State.ActiveTooltip and not RCM.State.ActivePopup and RCM.State.Enabled then
-            local t, m = RCM.State.ActiveTooltip, RCM.State.MousePos
-            local w = (7*#t)+16
-            RCM.RectStatic(vector.create(m.x+15,m.y+15,RCM.Layer.Tooltip), vector.create(w,24,0), RCM.Theme.Border, 1)
-            RCM.RectStatic(vector.create(m.x+16,m.y+16,RCM.Layer.Tooltip), vector.create(w-2,22,0), RCM.Theme.TooltipBg, 1)
-            RCM.LabelStatic(vector.create(m.x+20,m.y+20,RCM.Layer.Tooltip), t, RCM.Theme.Text)
-        end
-    end)
-end
-
-return RCM
+})
